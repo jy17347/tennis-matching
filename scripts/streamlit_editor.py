@@ -190,7 +190,7 @@ def display_statistics(system):
 
 def main():
     """메인 함수"""
-    st.title("🎾 사방팔방 매칭 시스템")
+    st.title("🎾 사방팔방 매칭")
     
     # 커스텀 CSS 스타일
     st.markdown("""
