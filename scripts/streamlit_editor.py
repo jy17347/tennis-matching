@@ -256,7 +256,7 @@ def main():
     with tab1:
         
         # 데이터 로드
-        if 'df' not in st.session_state or st.button("🔄 데이터 새로고침"):
+        if 'df' not in st.session_state:
             st.session_state.df = load_participation_data()
         
         if st.session_state.df is not None:
