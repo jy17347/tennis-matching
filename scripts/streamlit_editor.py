@@ -202,7 +202,7 @@ def main():
     .stTabs [data-baseweb="tab"] {
         height: 60px;
         padding: 10px 24px;
-        background-color: #080A0D;
+        background-color: #6c757d;
         border-radius: 8px 8px 0px 0px;
         font-size: 18px;
         font-weight: 600;
@@ -214,6 +214,7 @@ def main():
     }
     .stTabs [data-baseweb="tab"]:hover {
         color: white !important;
+        background-color: #5a6268;
     }
     
     /* Primary 버튼 스타일 */
