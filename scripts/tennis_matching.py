@@ -1143,10 +1143,19 @@ class TennisMatchingSystem:
             return None
         
         font_registered = False
+        # Windows 및 Linux 폰트 경로
         font_paths = [
+            # Windows
             'C:/Windows/Fonts/malgun.ttf',
             'C:/Windows/Fonts/NanumGothic.ttf',
             'C:/Windows/Fonts/gulim.ttc',
+            # Linux (Ubuntu/Debian)
+            '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+            '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
+            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+            # 프로젝트 로컬 폰트
+            './fonts/NanumGothic.ttf',
+            '../fonts/NanumGothic.ttf',
         ]
         
         for font_path in font_paths:
@@ -1154,9 +1163,14 @@ class TennisMatchingSystem:
                 try:
                     pdfmetrics.registerFont(TTFont('Korean', font_path))
                     font_registered = True
+                    print(f"폰트 등록 성공: {font_path}")
                     break
-                except:
+                except Exception as e:
+                    print(f"폰트 등록 실패 ({font_path}): {e}")
                     continue
+        
+        if not font_registered:
+            print("⚠️ 한글 폰트를 찾을 수 없습니다. 기본 폰트를 사용합니다.")
         
         korean_font = 'Korean' if font_registered else 'Helvetica'
         
