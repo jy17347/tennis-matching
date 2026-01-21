@@ -206,10 +206,14 @@ def main():
         border-radius: 8px 8px 0px 0px;
         font-size: 18px;
         font-weight: 600;
+        color: white !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #1f77b4;
-        color: white;
+        color: white !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: white !important;
     }
     
     /* Primary 버튼 스타일 */
