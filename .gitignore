@@ -21,7 +21,6 @@ results/*.pdf
 .idea/
 *.swp
 *.swo
-*.pdf
 
 # OS
 .DS_Store
