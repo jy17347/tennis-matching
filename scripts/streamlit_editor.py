@@ -280,7 +280,7 @@ def main():
             
             # 데이터 편집기
             st.markdown("### ✏️ 데이터 편집")
-            st.markdown("※ '참여 (1)' 열에 'O', '1' 또는 1을 입력하면 참가자로 등록됩니다.")
+            st.markdown("※ '참여 (1)' 열에 'O', '1' 또는 1을 입력하면 참가자로 등록")
             
             edited_df = st.data_editor(
                 display_df,
