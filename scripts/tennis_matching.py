@@ -1080,6 +1080,18 @@ class TennisMatchingSystem:
         for time_slot in range(1, self.time_slots + 1):
             row = {'타임': time_slot}
             time_matches = [m for m in self.schedule if m.time_slot == time_slot]
+            
+            # 해당 타임에 경기하는 선수들 수집
+            playing_players = set()
+            for match in time_matches:
+                playing_players.add(match.team1[0].name)
+                playing_players.add(match.team1[1].name)
+                playing_players.add(match.team2[0].name)
+                playing_players.add(match.team2[1].name)
+            
+            # 쉬는 선수들 찾기 (참여하는 선수 중 경기하지 않는 선수)
+            resting_players = [p.name for p in self.players if p.matches_played > 0 and p.name not in playing_players]
+            
             for court in range(1, self.courts + 1):
                 court_match = next((m for m in time_matches if m.court == court), None)
                 if court_match:
@@ -1088,6 +1100,9 @@ class TennisMatchingSystem:
                     row[f'코트{court}'] = f"[{court_match.match_type}]\n{t1}\nvs\n{t2}"
                 else:
                     row[f'코트{court}'] = "-"
+            
+            # 쉬는 사람들 추가
+            row['쉬는 사람'] = ', '.join(resting_players) if resting_players else '-'
             timetable_data.append(row)
         df_timetable = pd.DataFrame(timetable_data)
         
@@ -1194,10 +1209,22 @@ class TennisMatchingSystem:
         elements.append(Paragraph(f"생성일: {datetime.now().strftime('%Y년 %m월 %d일')}", normal_style))
         elements.append(Spacer(1, 0.5*cm))
         
-        table_data = [['타임', '코트 1', '코트 2', '코트 3']]
+        table_data = [['타임', '코트 1', '코트 2', '코트 3', '쉬는 사람']]
         for time_slot in range(1, self.time_slots + 1):
             row = [f'{time_slot}']
             time_matches = [m for m in self.schedule if m.time_slot == time_slot]
+            
+            # 해당 타임에 경기하는 선수들 수집
+            playing_players = set()
+            for match in time_matches:
+                playing_players.add(match.team1[0].name)
+                playing_players.add(match.team1[1].name)
+                playing_players.add(match.team2[0].name)
+                playing_players.add(match.team2[1].name)
+            
+            # 쉬는 선수들 찾기
+            resting_players = [p.name for p in self.players if p.matches_played > 0 and p.name not in playing_players]
+            
             for court in range(1, self.courts + 1):
                 court_match = next((m for m in time_matches if m.court == court), None)
                 if court_match:
@@ -1206,9 +1233,12 @@ class TennisMatchingSystem:
                     row.append(f"[{court_match.match_type}]\n{t1}\nvs\n{t2}")
                 else:
                     row.append("-")
+            
+            # 쉬는 사람들 추가
+            row.append(', '.join(resting_players) if resting_players else '-')
             table_data.append(row)
         
-        table = Table(table_data, colWidths=[2*cm, 7*cm, 7*cm, 7*cm])
+        table = Table(table_data, colWidths=[1.5*cm, 6*cm, 6*cm, 6*cm, 5*cm])
         
         table_style = TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
@@ -1222,6 +1252,7 @@ class TennisMatchingSystem:
             ('TOPPADDING', (0, 1), (-1, -1), 10),
             ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
             ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#D6DCE5')),
+            ('BACKGROUND', (4, 1), (4, -1), colors.HexColor('#FFF2CC')),
         ])
         
         for i, time_slot in enumerate(range(1, self.time_slots + 1), start=1):
