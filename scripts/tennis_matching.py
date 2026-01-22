@@ -1209,7 +1209,12 @@ class TennisMatchingSystem:
         elements.append(Paragraph(f"생성일: {datetime.now().strftime('%Y년 %m월 %d일')}", normal_style))
         elements.append(Spacer(1, 0.5*cm))
         
-        table_data = [['타임', '코트 1', '코트 2', '코트 3', '쉬는 사람']]
+        # 벤치 컬럼용 작은 폰트 스타일
+        bench_style = ParagraphStyle('BenchKorean', parent=styles['Normal'],
+                                     fontName=korean_font, fontSize=7, 
+                                     alignment=1, leading=9)
+        
+        table_data = [['타임', '코트 1', '코트 2', '코트 3', '벤치']]
         for time_slot in range(1, self.time_slots + 1):
             row = [f'{time_slot}']
             time_matches = [m for m in self.schedule if m.time_slot == time_slot]
@@ -1234,8 +1239,9 @@ class TennisMatchingSystem:
                 else:
                     row.append("-")
             
-            # 쉬는 사람들 추가
-            row.append(', '.join(resting_players) if resting_players else '-')
+            # 쉬는 사람들 추가 - Paragraph로 감싸서 자동 줄바꿈
+            bench_text = ', '.join(resting_players) if resting_players else '-'
+            row.append(Paragraph(bench_text, bench_style))
             table_data.append(row)
         
         table = Table(table_data, colWidths=[1.5*cm, 6*cm, 6*cm, 6*cm, 5*cm])
