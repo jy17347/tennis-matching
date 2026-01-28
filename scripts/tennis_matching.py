@@ -409,18 +409,8 @@ class TennisMatchingSystem:
                     players_in_time.add(p.name)
         return players_in_time
     
-    def get_consecutive_rest_count(self, player, current_time):
-        """선수가 연속으로 쉰 타임 수 계산"""
-        if player.matches_played == 0:
-            return 0  # 아직 한 번도 경기 안 한 선수는 카운트 안 함
-        
-        # 마지막 경기 이후 쉰 타임 수
-        if player.last_time_played > 0:
-            return current_time - player.last_time_played - 1
-        return 0
-    
-    def get_available_players(self, time_slot, gender=None, exclude=None, prioritize_resting=True):
-        """해당 타임에 사용 가능한 선수 목록 (연속으로 쉬는 선수 우선)"""
+    def get_available_players(self, time_slot, gender=None, exclude=None):
+        """해당 타임에 사용 가능한 선수 목록"""
         players_in_time = self.get_players_in_time(time_slot)
         
         available = []
@@ -430,14 +420,6 @@ class TennisMatchingSystem:
             if p.name not in players_in_time:
                 if exclude is None or p.name not in [e.name for e in exclude]:
                     available.append(p)
-        
-        # 연속으로 쉬는 선수 우선 정렬
-        if prioritize_resting and available:
-            available.sort(key=lambda p: (
-                -self.get_consecutive_rest_count(p, time_slot),  # 연속으로 많이 쉰 선수 우선 (음수로 내림차순)
-                p.matches_played,  # 참여 횟수 적은 선수 우선
-                p.skill  # 실력 낮은(숫자 작은) 선수 우선
-            ))
         
         return available
     
@@ -681,10 +663,13 @@ class TennisMatchingSystem:
         if num_females < 2:
             for time_slot in range(self.time_slots):
                 for court in range(self.courts):
-                    available = self.get_available_players(time_slot + 1, gender=1, prioritize_resting=True)
+                    available = self.get_available_players(time_slot + 1, gender=1)
                     if len(available) >= 4:
-                        # 연속으로 쉬는 선수가 이미 우선순위로 정렬되어 있음
-                        # 상위 8명(연속으로 쉬는 선수 포함)에서 최적 조합 탐색
+                        # 참여 횟수 적은 순 + 랜덤성 추가
+                        random.shuffle(available)
+                        available.sort(key=lambda p: p.matches_played)
+                        
+                        # 더 넓은 풀에서 최적의 조합 탐색 (최대 8명)
                         pool_size = min(len(available), 8)
                         match = self.create_match(time_slot + 1, court + 1, '남복', available[:pool_size])
                         if match:
@@ -734,23 +719,15 @@ class TennisMatchingSystem:
             # 이 타임에 이미 배정된 선수 체크
             players_in_time = self.get_players_in_time(time_slot + 1)
             
-            # 가용 남자 찾기 (혼복 미참여자 우선, 연속으로 쉬는 선수 고려)
+            # 가용 남자 찾기 (혼복 미참여자 우선)
             no_mixed_males = [p for p in self.male_players 
                            if p.mixed_matches == 0 and p.name not in players_in_time]
             other_males = [p for p in self.male_players 
                          if p.mixed_matches > 0 and p.name not in players_in_time]
             
-            # 연속으로 쉬는 선수 우선 정렬
-            no_mixed_males.sort(key=lambda p: (
-                -self.get_consecutive_rest_count(p, time_slot + 1),
-                p.matches_played,
-                p.skill
-            ))
-            other_males.sort(key=lambda p: (
-                -self.get_consecutive_rest_count(p, time_slot + 1),
-                p.matches_played,
-                p.skill
-            ))
+            # 다양성을 위해 셔플
+            random.shuffle(no_mixed_males)
+            random.shuffle(other_males)
             
             if len(no_mixed_males) >= 2:
                 selected_males = no_mixed_males[:2]
@@ -762,18 +739,15 @@ class TennisMatchingSystem:
             if len(selected_males) < 2:
                 continue
             
-            # 가용 여자 찾기 (연속으로 쉬는 선수 우선)
+            # 가용 여자 찾기
             available_females = [p for p in self.female_players 
                                if p.name not in players_in_time]
             if len(available_females) < 2:
                 continue
             
-            # 연속으로 쉬는 선수 우선 + 참여 횟수 적은 여자 우선
-            available_females.sort(key=lambda p: (
-                -self.get_consecutive_rest_count(p, time_slot + 1),
-                p.matches_played,
-                p.skill
-            ))
+            # 참여 횟수 적은 여자 우선 + 랜덤성 추가
+            random.shuffle(available_females)
+            available_females.sort(key=lambda p: p.matches_played)
             selected_females = available_females[:2]
             
             # 매치 생성
@@ -793,9 +767,13 @@ class TennisMatchingSystem:
             if schedule_grid[time_slot][court] is not None:
                 continue
             
-            available = self.get_available_players(time_slot + 1, gender=2, prioritize_resting=True)
+            available = self.get_available_players(time_slot + 1, gender=2)
             if len(available) >= 4:
-                # 연속으로 쉬는 선수가 이미 우선순위로 정렬되어 있음
+                # 참여 횟수 적은 순 + 랜덤성 추가
+                random.shuffle(available)
+                available.sort(key=lambda p: p.matches_played)
+                
+                # 더 넓은 풀에서 최적의 조합 탐색
                 pool_size = min(len(available), 6)
                 match = self.create_match(time_slot + 1, court + 1, '여복', available[:pool_size])
                 if match:
@@ -810,9 +788,13 @@ class TennisMatchingSystem:
                 if schedule_grid[time_slot][court] is not None:
                     continue
                 
-                available = self.get_available_players(time_slot + 1, gender=1, prioritize_resting=True)
+                available = self.get_available_players(time_slot + 1, gender=1)
                 if len(available) >= 4:
-                    # 연속으로 쉬는 선수가 이미 우선순위로 정렬되어 있음
+                    # 참여 횟수 적은 순 + 랜덤성 추가
+                    random.shuffle(available)
+                    available.sort(key=lambda p: p.matches_played)
+                    
+                    # 더 넓은 풀에서 최적의 조합 탐색 (최대 8명)
                     pool_size = min(len(available), 8)
                     match = self.create_match(time_slot + 1, court + 1, '남복', available[:pool_size])
                     if match:
@@ -917,44 +899,7 @@ class TennisMatchingSystem:
                 if count >= 3:
                     score += (count - 2) * 150
         
-        # 8. 연속 휴식 패널티 (중요!)
-        consecutive_penalty = self.calculate_consecutive_rest_penalty()
-        score += consecutive_penalty
-        
         return score
-    
-    def calculate_consecutive_rest_penalty(self):
-        """연속으로 쉬는 선수에 대한 패널티 계산"""
-        penalty = 0
-        
-        for player in self.players:
-            if player.matches_played == 0:
-                continue
-            
-            # 각 타임에 경기했는지 확인
-            played_times = set()
-            for match in self.schedule:
-                if player.name in [p.name for p in match.get_all_players()]:
-                    played_times.add(match.time_slot)
-            
-            if not played_times:
-                continue
-            
-            # 첫 경기부터 마지막 경기까지 구간에서 연속 휴식 확인
-            first_time = min(played_times)
-            last_time = max(played_times)
-            
-            consecutive_rest = 0
-            for time_slot in range(first_time, last_time + 1):
-                if time_slot not in played_times:
-                    consecutive_rest += 1
-                    # 연속으로 쉬는 타임마다 패널티 부여
-                    if consecutive_rest >= 2:
-                        penalty += 400 * consecutive_rest  # 2타임: 800, 3타임: 1200
-                else:
-                    consecutive_rest = 0
-        
-        return penalty
 
     def optimize(self, iterations=1000):
         """최적화"""
@@ -1109,73 +1054,6 @@ class TennisMatchingSystem:
         female_matches = len([m for m in self.schedule if m.match_type == '여복'])
         mixed_matches = len([m for m in self.schedule if m.match_type == '혼복'])
         print(f"\n경기 타입: 남복 {male_matches}, 여복 {female_matches}, 혼복 {mixed_matches}")
-        
-        # 연속으로 쉬는 선수 체크
-        self.check_consecutive_rest()
-    
-    def check_consecutive_rest(self):
-        """연속으로 쉬는 선수 체크"""
-        print("\n" + "="*60)
-        print("                연속 휴식 분석")
-        print("="*60)
-        
-        consecutive_violations = []
-        
-        for player in self.players:
-            if player.matches_played == 0:
-                continue
-            
-            # 각 타임에 경기했는지 확인
-            played_times = set()
-            for match in self.schedule:
-                if player.name in [p.name for p in match.get_all_players()]:
-                    played_times.add(match.time_slot)
-            
-            # 연속으로 쉰 구간 찾기
-            max_consecutive_rest = 0
-            current_rest = 0
-            rest_periods = []
-            
-            for time_slot in range(1, self.time_slots + 1):
-                if player.last_time_played > 0 and time_slot <= player.last_time_played:
-                    # 첫 경기 전까지는 체크 안함
-                    if time_slot not in played_times and time_slot > min(played_times):
-                        current_rest += 1
-                    else:
-                        if current_rest > 0:
-                            rest_periods.append((time_slot - current_rest, time_slot - 1, current_rest))
-                            max_consecutive_rest = max(max_consecutive_rest, current_rest)
-                        current_rest = 0
-                elif time_slot > player.last_time_played and player.last_time_played > 0:
-                    # 마지막 경기 이후는 체크 안함
-                    break
-                elif time_slot not in played_times and played_times and time_slot > min(played_times):
-                    current_rest += 1
-                else:
-                    if current_rest > 0:
-                        rest_periods.append((time_slot - current_rest, time_slot - 1, current_rest))
-                        max_consecutive_rest = max(max_consecutive_rest, current_rest)
-                    current_rest = 0
-            
-            if current_rest > 0 and played_times:
-                rest_periods.append((self.time_slots - current_rest + 1, self.time_slots, current_rest))
-                max_consecutive_rest = max(max_consecutive_rest, current_rest)
-            
-            # 2타임 이상 연속으로 쉰 경우 기록
-            if max_consecutive_rest >= 2:
-                consecutive_violations.append({
-                    'name': player.name,
-                    'max_rest': max_consecutive_rest,
-                    'periods': rest_periods
-                })
-        
-        if consecutive_violations:
-            print(f"⚠️  연속 2타임 이상 휴식: {len(consecutive_violations)}명")
-            for v in consecutive_violations[:10]:  # 최대 10명만 표시
-                periods_str = ', '.join([f"T{start}-T{end}({count})" for start, end, count in v['periods'] if count >= 2])
-                print(f"     {v['name']}: 최대 {v['max_rest']}타임 연속 휴식 ({periods_str})")
-        else:
-            print("✅ 연속 2타임 이상 쉬는 선수 없음")
 
     def export_to_excel(self, output_path):
         """엑셀 파일로 출력"""
