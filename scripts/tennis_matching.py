@@ -45,6 +45,7 @@ class Player:
         self.teammates = defaultdict(int)  # 같은 팀으로 경기한 횟수
         self.opponents = defaultdict(int)  # 상대로 경기한 횟수
         self.last_time_played = -1  # 마지막으로 참여한 타임
+        self.consecutive_rests = 0  # 연속 휴식 횟수
         
     def __repr__(self):
         gender_str = "남" if self.gender == 1 else "여"
@@ -227,6 +228,7 @@ class TennisMatchingSystem:
             p.teammates = defaultdict(int)
             p.opponents = defaultdict(int)
             p.last_time_played = -1
+            p.consecutive_rests = 0
         self.schedule = []
     
     def calculate_match_distribution(self, verbose=True):
@@ -410,7 +412,7 @@ class TennisMatchingSystem:
         return players_in_time
     
     def get_available_players(self, time_slot, gender=None, exclude=None):
-        """해당 타임에 사용 가능한 선수 목록"""
+        """해당 타임에 사용 가능한 선수 목록 (연속 휴식자 우선)"""
         players_in_time = self.get_players_in_time(time_slot)
         
         available = []
@@ -421,13 +423,23 @@ class TennisMatchingSystem:
                 if exclude is None or p.name not in [e.name for e in exclude]:
                     available.append(p)
         
+        # 연속 휴식 횟수가 많은 선수를 앞으로 (연속 휴식 방지)
+        available.sort(key=lambda p: (-p.consecutive_rests, p.matches_played))
+        
         return available
     
     def update_player_stats(self, match):
         """경기 후 선수 통계 업데이트"""
+        # 먼저 모든 선수의 연속 휴식 카운터 증가
+        for p in self.players:
+            if p.last_time_played != -1 and p.last_time_played < match.time_slot:
+                p.consecutive_rests += 1
+        
+        # 경기 참여 선수 통계 업데이트 및 연속 휴식 리셋
         for p in match.get_all_players():
             p.matches_played += 1
             p.last_time_played = match.time_slot
+            p.consecutive_rests = 0  # 경기 참여시 연속 휴식 리셋
             
             if match.match_type == '혼복':
                 p.mixed_matches += 1
@@ -928,7 +940,8 @@ class TennisMatchingSystem:
                         'same_doubles': p.same_doubles,
                         'teammates': dict(p.teammates),
                         'opponents': dict(p.opponents),
-                        'last_time_played': p.last_time_played
+                        'last_time_played': p.last_time_played,
+                        'consecutive_rests': p.consecutive_rests
                     }
                 
                 males_no_mixed = [p for p in self.male_players if p.mixed_matches == 0]
@@ -951,6 +964,7 @@ class TennisMatchingSystem:
                     p.teammates = defaultdict(int, state['teammates'])
                     p.opponents = defaultdict(int, state['opponents'])
                     p.last_time_played = state['last_time_played']
+                    p.consecutive_rests = state.get('consecutive_rests', 0)
         
         print(f"\n최종 스코어: {best_score}")
         return best_schedule
