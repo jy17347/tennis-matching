@@ -201,6 +201,19 @@ class CustomConverter:
         for time in time_slots:
             row = {'타임': time}
             time_matches = [m for m in self.matches if m['time'] == time]
+            
+            # 해당 타임에 경기하는 선수들 수집
+            playing_players = set()
+            for match in time_matches:
+                playing_players.add(match['team1'][0])
+                playing_players.add(match['team1'][1])
+                playing_players.add(match['team2'][0])
+                playing_players.add(match['team2'][1])
+            
+            # 쉬는 선수들 찾기 (한번이라도 참여한 선수 중 현재 경기하지 않는 선수)
+            resting_players = [name for name, stats in self.player_stats.items() 
+                             if stats['matches_played'] > 0 and name not in playing_players]
+            
             for court in courts:
                 court_match = next((m for m in time_matches if m['court'] == court), None)
                 if court_match:
@@ -209,6 +222,13 @@ class CustomConverter:
                     row[f'코트{court}'] = f"[{court_match['type']}]\n{t1}\nvs\n{t2}"
                 else:
                     row[f'코트{court}'] = "-"
+            
+            # 벤치(쉬는 선수) 추가
+            if resting_players:
+                row['벤치'] = ', '.join(resting_players)
+            else:
+                row['벤치'] = '-'
+            
             timetable_data.append(row)
         df_timetable = pd.DataFrame(timetable_data)
         
@@ -341,11 +361,24 @@ class CustomConverter:
             time_slots = sorted(set(m['time'] for m in self.matches))
             courts = sorted(set(m['court'] for m in self.matches))
             
-            table_data = [['타임', '코트 1', '코트 2', '코트 3']]
+            table_data = [['타임', '코트 1', '코트 2', '코트 3', '벤치']]
             
             for time_slot in time_slots:
                 row = [f'{time_slot}']
                 time_matches = [m for m in self.matches if m['time'] == time_slot]
+                
+                # 해당 타임에 경기하는 선수들 수집
+                playing_players = set()
+                for match in time_matches:
+                    playing_players.add(match['team1'][0])
+                    playing_players.add(match['team1'][1])
+                    playing_players.add(match['team2'][0])
+                    playing_players.add(match['team2'][1])
+                
+                # 쉬는 선수들 찾기
+                resting_players = [name for name, stats in self.player_stats.items() 
+                                 if stats['matches_played'] > 0 and name not in playing_players]
+                
                 for court in courts:
                     court_match = next((m for m in time_matches if m['court'] == court), None)
                     if court_match:
@@ -354,10 +387,21 @@ class CustomConverter:
                         row.append(f"[{court_match['type']}]\n{t1}\nvs\n{t2}")
                     else:
                         row.append("-")
+                
+                # 쉬는 사람들 추가 - 3명씩 줄바꿈
+                if resting_players:
+                    bench_lines = []
+                    for i in range(0, len(resting_players), 3):
+                        bench_lines.append(', '.join(resting_players[i:i+3]))
+                    bench_text = '\n'.join(bench_lines)
+                else:
+                    bench_text = '-'
+                row.append(bench_text)
+                
                 table_data.append(row)
             
             # 테이블 생성
-            table = Table(table_data, colWidths=[2*cm, 7*cm, 7*cm, 7*cm])
+            table = Table(table_data, colWidths=[1.5*cm, 6*cm, 6*cm, 6*cm, 5*cm])
             
             # 기본 테이블 스타일 - tennis_matching.py와 동일
             table_style = TableStyle([
@@ -393,7 +437,7 @@ class CustomConverter:
             
             # 범례
             elements.append(Spacer(1, 0.5*cm))
-            legend = Table([['범례:', '남복', '여복', '혼복']], 
+            legend = Table([['경기:', '남복', '여복', '혼복']], 
                           colWidths=[2*cm, 4*cm, 4*cm, 4*cm])
             legend.setStyle(TableStyle([
                 ('FONTNAME', (0, 0), (-1, -1), korean_font),
@@ -426,7 +470,7 @@ class CustomConverter:
             참여 횟수: 최소 {min(parts) if parts else 0}회 ~ 최대 {max(parts) if parts else 0}회<br/>
             평균 팀간 실력차: {np.mean(diffs):.2f}
             """
-            elements.append(Paragraph(summary, normal_style))
+            # elements.append(Paragraph(summary, normal_style))
             
             # PDF 빌드
             doc.build(elements)

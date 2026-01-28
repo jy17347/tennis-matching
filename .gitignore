@@ -28,5 +28,7 @@ docs/
 .DS_Store
 Thumbs.db
 
+*.pdf
 # Streamlit
 .streamlit/secrets.toml
+*custom.xlsx
