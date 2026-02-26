@@ -59,7 +59,7 @@ def save_participation_data(df):
 
 
 def run_matching_algorithm(iterations=1000):
-    """매칭 알고리즘 실행"""
+    """매칭 알고리즘 실행 - 결과를 session_state에 저장"""
     try:
         # 매칭 시스템 초기화
         system = TennisMatchingSystem(ROSTER_FILE, PARTICIPATION_FILE)
@@ -71,104 +71,81 @@ def run_matching_algorithm(iterations=1000):
             st.error(f"❌ 매칭 실행 불가: {e}")
             return False
         
-        # 매칭 최적화 (여러 번 시도하여 최적 스케줄 선택)
+        # 매칭 최적화
         with st.spinner(f'매칭을 최적화하고 있습니다... ({iterations}회 반복)'):
             schedule = system.optimize(iterations=iterations)
         
         if schedule and len(schedule) > 0:
-            # 결과 저장
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             excel_path = os.path.join(RESULTS_DIR, f'테니스타임표_{timestamp}.xlsx')
             pdf_path = os.path.join(RESULTS_DIR, f'테니스타임표.pdf')
             
             # Excel 저장
             system.export_to_excel(excel_path)
-            st.success(f"✅ 매칭 생성 완료!")
-            # st.info(f"📁 Excel 파일 저장: `{excel_path}`")
             
-            # PDF 자동 생성
+            # Excel 바이트 읽기
+            excel_bytes = None
+            try:
+                with open(excel_path, "rb") as f:
+                    excel_bytes = f.read()
+            except Exception as ex_err:
+                st.warning(f"Excel 읽기 실패: {ex_err}")
+            
+            # PDF 생성
+            pdf_bytes = None
+            pdf_images = None
+            base64_pdf = None
             pdf_generated = system.export_to_pdf(pdf_path)
             
             if pdf_generated:
-                # st.success(f"📄 PDF 생성 완료")
-                
-                # PDF를 이미지로 변환하여 미리보기
-                st.markdown("---")
-                st.subheader("📄 매칭 결과")
-                
                 try:
-                    # PDF 파일 읽기 (다운로드용)
-                    with open(pdf_path, "rb") as pdf_file:
-                        pdf_bytes = pdf_file.read()
-                    
-                    # PDF를 이미지로 변환
+                    with open(pdf_path, "rb") as f:
+                        pdf_bytes = f.read()
                     if PDF_TO_IMAGE_AVAILABLE:
                         try:
                             images = convert_from_path(pdf_path, dpi=200)
-                            
-                            # 각 페이지를 이미지로 표시
-                            for i, image in enumerate(images):
-                                st.image(image, caption=f'페이지 {i+1}', use_container_width=True)
-                                if i < len(images) - 1:
-                                    st.markdown("---")
-                        except Exception as img_error:
-                            st.warning(f"이미지 변환 실패: {img_error}")
-                            st.info("💡 PDF를 이미지로 보려면 poppler 설치가 필요합니다.")
-                            # fallback: iframe으로 표시
-                            base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
-                            st.markdown(pdf_display, unsafe_allow_html=True)
-                    else:
-                        st.info("💡 이미지로 보려면 pdf2image 라이브러리를 설치하세요: `pip install pdf2image`")
-                        # fallback: iframe으로 표시
+                            # PIL Image를 base64로 변환하여 저장 (session_state 직렬화 가능)
+                            import io
+                            pdf_images = []
+                            for img in images:
+                                buf = io.BytesIO()
+                                img.save(buf, format='PNG')
+                                pdf_images.append(buf.getvalue())
+                        except Exception:
+                            pass
+                    if pdf_images is None:
                         base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
-                        st.markdown(pdf_display, unsafe_allow_html=True)
-                    
-                    # 다운로드 버튼
-                    col_pdf, col_excel = st.columns(2)
-                    with col_pdf:
-                        st.download_button(
-                            label="📥 PDF 다운로드",
-                            data=pdf_bytes,
-                            file_name=f'테니스_매칭결과_{timestamp}.pdf',
-                            mime='application/pdf',
-                            use_container_width=True
-                        )
-                    with col_excel:
-                        try:
-                            with open(excel_path, "rb") as excel_file:
-                                excel_bytes = excel_file.read()
-                            st.download_button(
-                                label="📊 Excel 다운로드",
-                                data=excel_bytes,
-                                file_name=f'테니스_매칭결과_{timestamp}.xlsx',
-                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                use_container_width=True
-                            )
-                        except Exception as ex_err:
-                            st.warning(f"Excel 다운로드 준비 실패: {ex_err}")
                 except Exception as e:
-                    st.error(f"PDF 미리보기 실패: {e}")
-            else:
-                st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
-                # PDF 없어도 Excel 다운로드는 제공
-                try:
-                    with open(excel_path, "rb") as excel_file:
-                        excel_bytes = excel_file.read()
-                    st.download_button(
-                        label="📊 Excel 다운로드",
-                        data=excel_bytes,
-                        file_name=f'테니스_매칭결과_{timestamp}.xlsx',
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    )
-                except Exception as ex_err:
-                    st.warning(f"Excel 다운로드 준비 실패: {ex_err}")
+                    st.warning(f"PDF 읽기 실패: {e}")
             
-            # 통계 표시
-            st.markdown("---")
-            display_statistics(system)
+            # 통계 데이터 수집
+            match_types = {'남복': 0, '여복': 0, '혼복': 0}
+            for match in system.schedule:
+                match_types[match.match_type] += 1
             
+            player_stats = []
+            for player in system.players:
+                gender_str = "남" if player.gender == 1 else "여"
+                player_stats.append({
+                    '이름': player.name,
+                    '성별': gender_str,
+                    '총 경기': player.matches_played,
+                    '혼복': player.mixed_matches,
+                    '단일복식': player.same_doubles
+                })
+            stats_df = pd.DataFrame(player_stats).sort_values('총 경기', ascending=False)
+            
+            # 결과를 session_state에 저장
+            st.session_state['matching_result'] = {
+                'timestamp': timestamp,
+                'excel_bytes': excel_bytes,
+                'pdf_bytes': pdf_bytes,
+                'pdf_generated': pdf_generated,
+                'pdf_images': pdf_images,
+                'base64_pdf': base64_pdf,
+                'match_types': match_types,
+                'stats_df': stats_df,
+            }
             return True
         else:
             st.error("❌ 매칭 생성 실패. 조건을 만족하는 스케줄을 찾을 수 없습니다.")
@@ -179,41 +156,66 @@ def run_matching_algorithm(iterations=1000):
         return False
 
 
-def display_statistics(system):
-    """매칭 통계 표시"""
+def display_matching_result():
+    """session_state에 저장된 매칭 결과를 렌더링"""
+    result = st.session_state.get('matching_result')
+    if not result:
+        return
+    
+    timestamp = result['timestamp']
+    st.success("✅ 매칭 생성 완료!")
+    
+    # 다운로드 버튼 (항상 상단에 고정)
+    col_pdf, col_excel = st.columns(2)
+    with col_pdf:
+        if result['pdf_bytes']:
+            st.download_button(
+                label="📥 PDF 다운로드",
+                data=result['pdf_bytes'],
+                file_name=f'테니스_매칭결과_{timestamp}.pdf',
+                mime='application/pdf',
+                use_container_width=True
+            )
+    with col_excel:
+        if result['excel_bytes']:
+            st.download_button(
+                label="📊 Excel 다운로드",
+                data=result['excel_bytes'],
+                file_name=f'테니스_매칭결과_{timestamp}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                use_container_width=True
+            )
+    
+    # 매칭 결과 이미지 미리보기
+    if result['pdf_generated']:
+        st.markdown("---")
+        st.subheader("📄 매칭 결과")
+        if result['pdf_images']:
+            for i, img_bytes in enumerate(result['pdf_images']):
+                st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
+                if i < len(result['pdf_images']) - 1:
+                    st.markdown("---")
+        elif result['base64_pdf']:
+            if not PDF_TO_IMAGE_AVAILABLE:
+                st.info("💡 이미지로 보려면 pdf2image 라이브러리를 설치하세요: `pip install pdf2image`")
+            pdf_display = f'<iframe src="data:application/pdf;base64,{result["base64_pdf"]}" width="100%" height="800" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+    else:
+        st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
+    
+    # 통계
+    st.markdown("---")
     st.subheader("📊 매칭 통계")
-    
-    # 경기 타입별 분포
-    match_types = {'남복': 0, '여복': 0, '혼복': 0}
-    for match in system.schedule:
-        match_types[match.match_type] += 1
-    
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("남복 경기", match_types['남복'])
+        st.metric("남복 경기", result['match_types']['남복'])
     with col2:
-        st.metric("여복 경기", match_types['여복'])
+        st.metric("여복 경기", result['match_types']['여복'])
     with col3:
-        st.metric("혼복 경기", match_types['혼복'])
+        st.metric("혼복 경기", result['match_types']['혼복'])
     
-    # 선수별 참여 횟수
     st.subheader("선수별 참여 횟수")
-    
-    player_stats = []
-    for player in system.players:
-        gender_str = "남" if player.gender == 1 else "여"
-        player_stats.append({
-            '이름': player.name,
-            '성별': gender_str,
-            '총 경기': player.matches_played,
-            '혼복': player.mixed_matches,
-            '단일복식': player.same_doubles
-        })
-    
-    stats_df = pd.DataFrame(player_stats)
-    stats_df = stats_df.sort_values('총 경기', ascending=False)
-    
-    st.dataframe(stats_df, use_container_width=True)
+    st.dataframe(result['stats_df'], use_container_width=True)
 
 
 def main():
@@ -442,30 +444,9 @@ def main():
         else:
             st.error("참가자 데이터를 불러올 수 없습니다.")
         
-        # 이전 결과 표시
+        # 매칭 결과 표시 (session_state에서 렌더링 - 다운로드 버튼 클릭 후에도 유지됨)
         st.markdown("---")
-        # st.subheader("📂 이전 결과 파일")
-        
-        # if os.path.exists(RESULTS_DIR):
-        #     result_files = sorted(
-        #         [f for f in os.listdir(RESULTS_DIR) if f.startswith('schedule_') and f.endswith('.xlsx')],
-        #         reverse=True
-        #     )
-            
-        #     if result_files:
-        #         st.markdown(f"총 {len(result_files)}개의 결과 파일이 있습니다.")
-                
-        #         # 최근 5개 파일만 표시
-        #         for file in result_files[:5]:
-        #             file_path = os.path.join(RESULTS_DIR, file)
-        #             file_size = os.path.getsize(file_path) / 1024  # KB
-        #             file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    
-        #             st.text(f"📄 {file} ({file_size:.1f} KB) - {file_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        #     else:
-        #         st.info("아직 생성된 결과 파일이 없습니다.")
-        # else:
-        #     st.info("결과 폴더가 없습니다.")
+        display_matching_result()
 
 
 if __name__ == "__main__":
