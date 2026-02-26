@@ -126,16 +126,44 @@ def run_matching_algorithm(iterations=1000):
                         st.markdown(pdf_display, unsafe_allow_html=True)
                     
                     # 다운로드 버튼
-                    st.download_button(
-                        label="📥 PDF 다운로드",
-                        data=pdf_bytes,
-                        file_name=f'schedule_{timestamp}.pdf',
-                        mime='application/pdf'
-                    )
+                    col_pdf, col_excel = st.columns(2)
+                    with col_pdf:
+                        st.download_button(
+                            label="📥 PDF 다운로드",
+                            data=pdf_bytes,
+                            file_name=f'테니스_매칭결과_{timestamp}.pdf',
+                            mime='application/pdf',
+                            use_container_width=True
+                        )
+                    with col_excel:
+                        try:
+                            with open(excel_path, "rb") as excel_file:
+                                excel_bytes = excel_file.read()
+                            st.download_button(
+                                label="📊 Excel 다운로드",
+                                data=excel_bytes,
+                                file_name=f'테니스_매칭결과_{timestamp}.xlsx',
+                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                use_container_width=True
+                            )
+                        except Exception as ex_err:
+                            st.warning(f"Excel 다운로드 준비 실패: {ex_err}")
                 except Exception as e:
                     st.error(f"PDF 미리보기 실패: {e}")
             else:
                 st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
+                # PDF 없어도 Excel 다운로드는 제공
+                try:
+                    with open(excel_path, "rb") as excel_file:
+                        excel_bytes = excel_file.read()
+                    st.download_button(
+                        label="📊 Excel 다운로드",
+                        data=excel_bytes,
+                        file_name=f'테니스_매칭결과_{timestamp}.xlsx',
+                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+                except Exception as ex_err:
+                    st.warning(f"Excel 다운로드 준비 실패: {ex_err}")
             
             # 통계 표시
             st.markdown("---")
