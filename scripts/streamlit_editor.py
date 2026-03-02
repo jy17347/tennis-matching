@@ -18,6 +18,13 @@ try:
 except ImportError:
     PDF_TO_IMAGE_AVAILABLE = False
 
+# AG Grid
+try:
+    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+    AGGRID_AVAILABLE = True
+except ImportError:
+    AGGRID_AVAILABLE = False
+
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
@@ -135,6 +142,21 @@ def run_matching_algorithm(iterations=1000):
                 })
             stats_df = pd.DataFrame(player_stats).sort_values('총 경기', ascending=False)
             
+            # 스케줄 DataFrame 생성 (테이블 편집용)
+            schedule_rows = []
+            for match in sorted(system.schedule, key=lambda m: (m.time_slot, m.court)):
+                schedule_rows.append({
+                    '타임': match.time_slot,
+                    '코트': match.court,
+                    '경기타입': match.match_type,
+                    '팀1_선수1': match.team1[0].name,
+                    '팀1_선수2': match.team1[1].name,
+                    '팀2_선수1': match.team2[0].name,
+                    '팀2_선수2': match.team2[1].name,
+                })
+            schedule_df = pd.DataFrame(schedule_rows)
+            player_names = sorted([p.name for p in system.players])
+
             # 결과를 session_state에 저장
             st.session_state['matching_result'] = {
                 'timestamp': timestamp,
@@ -145,6 +167,8 @@ def run_matching_algorithm(iterations=1000):
                 'base64_pdf': base64_pdf,
                 'match_types': match_types,
                 'stats_df': stats_df,
+                'schedule_df': schedule_df,
+                'player_names': player_names,
             }
             return True
         else:
@@ -156,66 +180,161 @@ def run_matching_algorithm(iterations=1000):
         return False
 
 
+def regenerate_excel_from_df(schedule_df):
+    """수정된 스케줄 DataFrame으로 Excel 재생성, bytes 반환"""
+    import io
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # 매칭결과 시트
+        schedule_df.to_excel(writer, sheet_name='매칭결과', index=False)
+
+        # 타임표 시트
+        time_slots = sorted(schedule_df['타임'].unique())
+        courts = sorted(schedule_df['코트'].unique())
+        player_cols = ['팀1_선수1', '팀1_선수2', '팀2_선수1', '팀2_선수2']
+        timetable_rows = []
+        for t in time_slots:
+            row = {'타임': t}
+            time_matches = schedule_df[schedule_df['타임'] == t]
+            playing = set()
+            for _, m in time_matches.iterrows():
+                for col in player_cols:
+                    playing.add(m[col])
+            for c in courts:
+                court_match = time_matches[time_matches['코트'] == c]
+                if len(court_match) > 0:
+                    m = court_match.iloc[0]
+                    t1 = f"{m['팀1_선수1']} & {m['팀1_선수2']}"
+                    t2 = f"{m['팀2_선수1']} & {m['팀2_선수2']}"
+                    row[f'코트{c}'] = f"[{m['경기타입']}]\n{t1}\nvs\n{t2}"
+                else:
+                    row[f'코트{c}'] = '-'
+            timetable_rows.append(row)
+        pd.DataFrame(timetable_rows).to_excel(writer, sheet_name='타임표', index=False)
+    return output.getvalue()
+
+
 def display_matching_result():
     """session_state에 저장된 매칭 결과를 렌더링"""
     result = st.session_state.get('matching_result')
     if not result:
         return
-    
+
     timestamp = result['timestamp']
     st.success("✅ 매칭 생성 완료!")
-    
-    # 다운로드 버튼 (항상 상단에 고정)
+
+    # 다운로드 버튼 (항상 상단 고정)
     col_pdf, col_excel = st.columns(2)
     with col_pdf:
         if result['pdf_bytes']:
             st.download_button(
-                label=" PDF 다운로드",
+                label="📥 PDF 다운로드",
                 data=result['pdf_bytes'],
                 file_name=f'테니스_매칭결과_{timestamp}.pdf',
                 mime='application/pdf',
                 use_container_width=True
             )
     with col_excel:
-        if result['excel_bytes']:
+        dl_key = st.session_state.get('excel_dl_key', 'excel_dl_0')
+        dl_bytes = st.session_state.get('edited_excel_bytes') or result['excel_bytes']
+        if dl_bytes:
             st.download_button(
-                label=" Excel 다운로드",
-                data=result['excel_bytes'],
+                label="📊 Excel 다운로드",
+                data=dl_bytes,
                 file_name=f'테니스_매칭결과_{timestamp}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                use_container_width=True
+                use_container_width=True,
+                key=dl_key
             )
-    
-    # 매칭 결과 이미지 미리보기
-    if result['pdf_generated']:
-        st.markdown("---")
-        st.subheader(" 매칭 결과")
-        if result['pdf_images']:
-            for i, img_bytes in enumerate(result['pdf_images']):
-                st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
-                if i < len(result['pdf_images']) - 1:
-                    st.markdown("---")
-        elif result['base64_pdf']:
-            if not PDF_TO_IMAGE_AVAILABLE:
-                st.info("💡 이미지로 보려면 pdf2image 라이브러리를 설치하세요: `pip install pdf2image`")
-            pdf_display = f'<iframe src="data:application/pdf;base64,{result["base64_pdf"]}" width="100%" height="800" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-    else:
-        st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
-    
-    # 통계
+
     st.markdown("---")
-    st.subheader(" 매칭 통계")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("남복 경기", result['match_types']['남복'])
-    with col2:
-        st.metric("여복 경기", result['match_types']['여복'])
-    with col3:
-        st.metric("혼복 경기", result['match_types']['혼복'])
-    
-    st.subheader("선수별 참여 횟수")
-    st.dataframe(result['stats_df'], use_container_width=True)
+
+    # 결과 탭: PDF 미리보기 / 테이블 편집
+    tab_pdf, tab_table, tab_stats = st.tabs(["📄 PDF 미리보기", "📋 테이블 편집", "📊 통계"])
+
+    # ── 탭1: PDF 미리보기 ──────────────────────────────────
+    with tab_pdf:
+        if result['pdf_generated']:
+            if result['pdf_images']:
+                for i, img_bytes in enumerate(result['pdf_images']):
+                    st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
+                    if i < len(result['pdf_images']) - 1:
+                        st.markdown("---")
+            elif result['base64_pdf']:
+                if not PDF_TO_IMAGE_AVAILABLE:
+                    st.info("💡 이미지로 보려면 pdf2image 라이브러리를 설치하세요: `pip install pdf2image`")
+                pdf_display = f'<iframe src="data:application/pdf;base64,{result["base64_pdf"]}" width="100%" height="800" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
+
+    # ── 탭2: 테이블 편집 (AG Grid) ─────────────────────────
+    with tab_table:
+        schedule_df = result.get('schedule_df')
+        player_names = result.get('player_names', [])
+
+        if schedule_df is None:
+            st.info("스케줄 데이터가 없습니다.")
+        elif not AGGRID_AVAILABLE:
+            st.warning("⚠️ streamlit-aggrid가 설치되지 않았습니다: `pip install streamlit-aggrid`")
+            st.dataframe(schedule_df, use_container_width=True)
+        else:
+            st.caption("💡 행을 드래그해 순서를 바꾸거나, 선수 셀을 클릭해 이름을 변경할 수 있습니다.")
+
+            gb = GridOptionsBuilder.from_dataframe(schedule_df)
+
+            # 행 드래그 (첫 번째 열에 핸들)
+            gb.configure_column('타임',   width=75,  pinned='left',
+                                rowDrag=True, rowDragManaged=True)
+            gb.configure_column('코트',   width=75)
+            gb.configure_column('경기타입', width=90, editable=True,
+                                cellEditor='agSelectCellEditor',
+                                cellEditorParams={'values': ['남복', '여복', '혼복']})
+
+            # 선수 열 - 드롭다운으로 편집
+            for col in ['팀1_선수1', '팀1_선수2', '팀2_선수1', '팀2_선수2']:
+                gb.configure_column(col, editable=True, width=120,
+                                    cellEditor='agSelectCellEditor',
+                                    cellEditorParams={'values': player_names})
+
+            gb.configure_grid_options(
+                rowDragManaged=True,
+                animateRows=True,
+                suppressMoveWhenRowDragging=False,
+            )
+
+            grid_response = AgGrid(
+                schedule_df,
+                gridOptions=gb.build(),
+                update_mode=GridUpdateMode.MODEL_CHANGED,
+                fit_columns_on_grid_load=True,
+                height=min(80 + len(schedule_df) * 42, 600),
+                allow_unsafe_jscode=True,
+            )
+
+            edited_df = pd.DataFrame(grid_response['data'])
+
+            if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary"):
+                new_excel_bytes = regenerate_excel_from_df(edited_df)
+                st.session_state['edited_excel_bytes'] = new_excel_bytes
+                # 다운로드 버튼 key 교체로 즉시 반영
+                prev = st.session_state.get('excel_dl_key', 'excel_dl_0')
+                n = int(prev.split('_')[-1]) + 1
+                st.session_state['excel_dl_key'] = f'excel_dl_{n}'
+                st.success("✅ Excel이 재생성되었습니다. 상단 'Excel 다운로드' 버튼으로 받으세요.")
+                st.rerun()
+
+    # ── 탭3: 통계 ─────────────────────────────────────────
+    with tab_stats:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("남복 경기", result['match_types']['남복'])
+        with col2:
+            st.metric("여복 경기", result['match_types']['여복'])
+        with col3:
+            st.metric("혼복 경기", result['match_types']['혼복'])
+        st.subheader("선수별 참여 횟수")
+        st.dataframe(result['stats_df'], use_container_width=True)
 
 
 def main():
