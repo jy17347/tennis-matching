@@ -18,18 +18,6 @@ try:
 except ImportError:
     PDF_TO_IMAGE_AVAILABLE = False
 
-# AG Grid
-try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-    AGGRID_AVAILABLE = True
-except ImportError:
-    AGGRID_AVAILABLE = False
-
-# 커스텀 드래그앤드롭 컴포넌트
-import streamlit.components.v1 as components
-_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), 'components', 'match_editor')
-_match_editor = components.declare_component('match_editor', path=_COMPONENT_DIR)
-
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
@@ -182,6 +170,9 @@ def run_matching_algorithm(iterations=1000):
                 'schedule_data': schedule_data,
                 'player_genders': player_genders,
             }
+            # 편집 상태 초기화 (새 매칭 생성 시 이전 편집 내용 제거)
+            st.session_state.pop('edit_schedule', None)
+            st.session_state.pop('edited_excel_bytes', None)
             return True
         else:
             st.error("❌ 매칭 생성 실패. 조건을 만족하는 스케줄을 찾을 수 없습니다.")
@@ -329,26 +320,124 @@ def display_matching_result():
     with tab_table:
         schedule_data  = result.get('schedule_data')
         player_genders = result.get('player_genders', [])
+        player_names   = result.get('player_names', [])
 
         if schedule_data is None:
             st.info("스케줄 데이터가 없습니다.")
         else:
-            st.caption("💡 같은 타임 안에서 선수 카드를 드래그해 코트 또는 벤치 간 이동이 가능합니다.")
+            gender_map = {pg['name']: pg['gender'] for pg in player_genders}
 
-            # 컴포넌트 호출 → 변경 시 updated_data 반환
-            updated_data = _match_editor(
-                schedule_data=schedule_data,
-                player_genders=player_genders,
-                key='match_editor_component',
-            )
+            TYPE_COLORS = {'남복': '#DDEBF7', '여복': '#FCE4D6', '혼복': '#E2EFDA'}
+            MALE_BORDER  = '#4472C4'
+            FEMALE_BORDER = '#E05F5F'
 
-            if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary"):
-                # 컴포넌트가 아직 값을 반환하지 않았으면 원본 사용
-                data_to_save = updated_data if updated_data else schedule_data
-                edited_df = _schedule_data_to_df(data_to_save)
+            def player_badge(name):
+                color = FEMALE_BORDER if gender_map.get(name) == 'female' else MALE_BORDER
+                return (f'<span style="display:inline-block;padding:3px 8px;margin:2px;'
+                        f'border-left:3px solid {color};background:#fff;'
+                        f'border-radius:4px;font-size:12px;font-weight:600;'
+                        f'border:1px solid #ddd;border-left:3px solid {color}">{name}</span>')
+
+            # 세션 상태에서 편집본 유지 (뺄복 렌더링 시에도 유지)
+            if 'edit_schedule' not in st.session_state:
+                import copy
+                st.session_state['edit_schedule'] = copy.deepcopy(schedule_data)
+
+            edit_data = st.session_state['edit_schedule']
+
+            for slot in edit_data['time_slots']:
+                t = slot['time']
+                st.markdown(f"""
+                <div style='background:#4472C4;color:#fff;font-weight:700;
+                            padding:6px 14px;border-radius:8px 8px 0 0;
+                            margin-top:14px;font-size:14px;'>
+                    ⏱ {t}타임
+                </div>
+                """, unsafe_allow_html=True)
+
+                # 코트 수만큼 + 벤치 1개 코럼
+                courts = slot['courts']
+                bench  = slot['bench']
+                n_cols = len(courts) + 1
+                cols   = st.columns(n_cols)
+
+                # 벤치
+                with cols[0]:
+                    st.markdown("""
+                    <div style='background:#f0f0f0;border-radius:6px;
+                                padding:6px 10px;text-align:center;
+                                font-size:12px;font-weight:700;color:#555;
+                                margin-bottom:6px;'>&#129305; 벤치</div>
+                    """, unsafe_allow_html=True)
+                    bench_html = ''.join(player_badge(n) for n in bench) if bench else '<span style="color:#aaa;font-size:11px">(없음)</span>'
+                    st.markdown(f"<div style='min-height:40px'>{bench_html}</div>",
+                                unsafe_allow_html=True)
+                    # 벤치 선수 수정 (selectbox)
+                    new_bench = []
+                    for bi, bp in enumerate(bench):
+                        nb = st.selectbox(
+                            f"",
+                            options=player_names,
+                            index=player_names.index(bp) if bp in player_names else 0,
+                            key=f'bench_{t}_{bi}',
+                            label_visibility='collapsed'
+                        )
+                        new_bench.append(nb)
+                    slot['bench'] = new_bench
+
+                # 코트별
+                for ci, court in enumerate(courts):
+                    c     = court['court']
+                    ctype = court['type']
+                    bg    = TYPE_COLORS.get(ctype, '#fff')
+
+                    with cols[ci + 1]:
+                        st.markdown(f"""
+                        <div style='background:{bg};border-radius:6px;
+                                    padding:6px 10px;text-align:center;
+                                    font-size:12px;font-weight:700;color:#333;
+                                    margin-bottom:6px;'>
+                            테니스코트 {c} &nbsp;
+                            <span style='font-size:10px;background:#fff;
+                                         padding:1px 5px;border-radius:10px;
+                                         color:#555'>{ctype}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # 경기 타입
+                        new_type = st.selectbox(
+                            "경기타입",
+                            options=['남복', '여복', '혼복'],
+                            index=['남복', '여복', '혼복'].index(ctype),
+                            key=f'type_{t}_{c}',
+                            label_visibility='collapsed'
+                        )
+                        court['type'] = new_type
+
+                        # 팁 1 / 팁 2 선수
+                        for team_idx, (team_key, label) in enumerate(
+                                [('team1', '팁 1'), ('team2', '팁 2')]):
+                            st.caption(label)
+                            team = court[team_key]
+                            new_team = []
+                            for pi, pname in enumerate(team):
+                                np_sel = st.selectbox(
+                                    "",
+                                    options=player_names,
+                                    index=player_names.index(pname) if pname in player_names else 0,
+                                    key=f'p_{t}_{c}_{team_key}_{pi}',
+                                    label_visibility='collapsed'
+                                )
+                                new_team.append(np_sel)
+                            court[team_key] = new_team
+
+                st.markdown("<hr style='margin:4px 0 0 0'>", unsafe_allow_html=True)
+
+            # 적용 버튼
+            if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary", key='apply_edit'):
+                edited_df = _schedule_data_to_df(edit_data)
                 new_excel_bytes = regenerate_excel_from_df(edited_df)
                 st.session_state['edited_excel_bytes'] = new_excel_bytes
-                # 다운로드 버튼 key 갱신
                 prev = st.session_state.get('excel_dl_key', 'excel_dl_0')
                 n = int(prev.split('_')[-1]) + 1
                 st.session_state['excel_dl_key'] = f'excel_dl_{n}'
