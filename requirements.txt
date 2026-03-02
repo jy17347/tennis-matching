@@ -5,3 +5,4 @@ numpy>=1.26.0
 reportlab>=4.0.9
 pdf2image>=1.17.0
 streamlit-aggrid
+streamlit-sortables

@@ -21,6 +21,13 @@ except ImportError:
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
+# streamlit-sortables
+try:
+    from streamlit_sortables import sort_items
+    SORTABLES_AVAILABLE = True
+except ImportError:
+    SORTABLES_AVAILABLE = False
+
 # 페이지 설정
 st.set_page_config(
     page_title="테니스 참가자 관리",
@@ -324,123 +331,111 @@ def display_matching_result():
 
         if schedule_data is None:
             st.info("스케줄 데이터가 없습니다.")
+        elif not SORTABLES_AVAILABLE:
+            st.warning("⚠️ streamlit-sortables 설치 필요: `pip install streamlit-sortables`")
         else:
             gender_map = {pg['name']: pg['gender'] for pg in player_genders}
-
             TYPE_COLORS = {'남복': '#DDEBF7', '여복': '#FCE4D6', '혼복': '#E2EFDA'}
-            MALE_BORDER  = '#4472C4'
-            FEMALE_BORDER = '#E05F5F'
 
-            def player_badge(name):
-                color = FEMALE_BORDER if gender_map.get(name) == 'female' else MALE_BORDER
-                return (f'<span style="display:inline-block;padding:3px 8px;margin:2px;'
-                        f'border-left:3px solid {color};background:#fff;'
-                        f'border-radius:4px;font-size:12px;font-weight:600;'
-                        f'border:1px solid #ddd;border-left:3px solid {color}">{name}</span>')
-
-            # 세션 상태에서 편집본 유지 (뺄복 렌더링 시에도 유지)
+            import copy
             if 'edit_schedule' not in st.session_state:
-                import copy
                 st.session_state['edit_schedule'] = copy.deepcopy(schedule_data)
 
             edit_data = st.session_state['edit_schedule']
 
-            for slot in edit_data['time_slots']:
-                t = slot['time']
-                st.markdown(f"""
-                <div style='background:#4472C4;color:#fff;font-weight:700;
-                            padding:6px 14px;border-radius:8px 8px 0 0;
-                            margin-top:14px;font-size:14px;'>
-                    ⏱ {t}타임
-                </div>
-                """, unsafe_allow_html=True)
+            st.caption("💡 카드를 드래그해 같은 타임 안에서 코트/벤치 간 이동이 가능합니다. 변경 후 하단 '적용' 버튼을 누르세요.")
 
-                # 코트 수만큼 + 벤치 1개 코럼
+            updated_slots = []
+            for slot in edit_data['time_slots']:
+                t      = slot['time']
                 courts = slot['courts']
                 bench  = slot['bench']
-                n_cols = len(courts) + 1
-                cols   = st.columns(n_cols)
 
-                # 벤치
-                with cols[0]:
-                    st.markdown("""
-                    <div style='background:#f0f0f0;border-radius:6px;
-                                padding:6px 10px;text-align:center;
-                                font-size:12px;font-weight:700;color:#555;
-                                margin-bottom:6px;'>&#129305; 벤치</div>
-                    """, unsafe_allow_html=True)
-                    bench_html = ''.join(player_badge(n) for n in bench) if bench else '<span style="color:#aaa;font-size:11px">(없음)</span>'
-                    st.markdown(f"<div style='min-height:40px'>{bench_html}</div>",
-                                unsafe_allow_html=True)
-                    # 벤치 선수 수정 (selectbox)
-                    new_bench = []
-                    for bi, bp in enumerate(bench):
-                        nb = st.selectbox(
-                            f"",
-                            options=player_names,
-                            index=player_names.index(bp) if bp in player_names else 0,
-                            key=f'bench_{t}_{bi}',
-                            label_visibility='collapsed'
-                        )
-                        new_bench.append(nb)
-                    slot['bench'] = new_bench
+                st.markdown(
+                    f"<div style='background:#4472C4;color:#fff;font-weight:700;"
+                    f"padding:6px 14px;border-radius:8px 8px 0 0;"
+                    f"margin-top:14px;font-size:14px;'>⏱ {t}타임</div>",
+                    unsafe_allow_html=True
+                )
 
-                # 코트별
-                for ci, court in enumerate(courts):
+                # sort_items 컨테이너 구성
+                containers = [{'header': '🏃 벤치', 'items': list(bench)}]
+                for court in courts:
                     c     = court['court']
                     ctype = court['type']
-                    bg    = TYPE_COLORS.get(ctype, '#fff')
+                    color_tag = {'남복': '🔵', '여복': '🔴', '혼복': '🟢'}.get(ctype, '')
+                    containers.append({
+                        'header': f"{color_tag} 코트{c} 팀1 [{ctype}]",
+                        'items':  list(court['team1'])
+                    })
+                    containers.append({
+                        'header': f"{color_tag} 코트{c} 팀2 [{ctype}]",
+                        'items':  list(court['team2'])
+                    })
 
-                    with cols[ci + 1]:
-                        st.markdown(f"""
-                        <div style='background:{bg};border-radius:6px;
-                                    padding:6px 10px;text-align:center;
-                                    font-size:12px;font-weight:700;color:#333;
-                                    margin-bottom:6px;'>
-                            테니스코트 {c} &nbsp;
-                            <span style='font-size:10px;background:#fff;
-                                         padding:1px 5px;border-radius:10px;
-                                         color:#555'>{ctype}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
+                result_containers = sort_items(
+                    containers,
+                    multi_containers=True,
+                    direction='horizontal',
+                    key=f'sort_{t}'
+                )
 
-                        # 경기 타입
-                        new_type = st.selectbox(
-                            "경기타입",
-                            options=['남복', '여복', '혼복'],
-                            index=['남복', '여복', '혼복'].index(ctype),
-                            key=f'type_{t}_{c}',
-                            label_visibility='collapsed'
-                        )
-                        court['type'] = new_type
+                # 결과 파싱 → slot 재구성
+                new_slot  = {'time': t, 'bench': [], 'courts': []}
+                court_tmp = {}  # court_num -> {team1, team2, type}
 
-                        # 팁 1 / 팁 2 선수
-                        for team_idx, (team_key, label) in enumerate(
-                                [('team1', '팁 1'), ('team2', '팁 2')]):
-                            st.caption(label)
-                            team = court[team_key]
-                            new_team = []
-                            for pi, pname in enumerate(team):
-                                np_sel = st.selectbox(
-                                    "",
-                                    options=player_names,
-                                    index=player_names.index(pname) if pname in player_names else 0,
-                                    key=f'p_{t}_{c}_{team_key}_{pi}',
-                                    label_visibility='collapsed'
-                                )
-                                new_team.append(np_sel)
-                            court[team_key] = new_team
+                for rc in result_containers:
+                    header = rc['header']
+                    items  = rc['items']
+                    if '벤치' in header:
+                        new_slot['bench'] = items
+                    else:
+                        # 헤더 형식: "🔵 코트1 팀1 [남복]"
+                        import re
+                        m = re.search(r'코트(\d+)\s*팀(\d+).*\[(.+?)\]', header)
+                        if m:
+                            cn   = int(m.group(1))
+                            tn   = int(m.group(2))
+                            ctype = m.group(3)
+                            if cn not in court_tmp:
+                                court_tmp[cn] = {'court': cn, 'type': ctype,
+                                                 'team1': [], 'team2': []}
+                            if tn == 1:
+                                court_tmp[cn]['team1'] = items
+                            else:
+                                court_tmp[cn]['team2'] = items
 
-                st.markdown("<hr style='margin:4px 0 0 0'>", unsafe_allow_html=True)
+                for cn in sorted(court_tmp):
+                    new_slot['courts'].append(court_tmp[cn])
 
-            # 적용 버튼
+                updated_slots.append(new_slot)
+
+                # 각 코트 인원 수 경고
+                warn_cols = st.columns(len(courts) + 1)
+                with warn_cols[0]:
+                    st.caption(f"벤치 {len(new_slot['bench'])}명")
+                for ci, court in enumerate(new_slot['courts']):
+                    with warn_cols[ci + 1]:
+                        t1n = len(court['team1'])
+                        t2n = len(court['team2'])
+                        ok  = t1n == 2 and t2n == 2
+                        msg = f"코트{court['court']}: {t1n}+{t2n}명"
+                        if ok:
+                            st.caption(f"✅ {msg}")
+                        else:
+                            st.caption(f"⚠️ {msg} (각 2명 필요)")
+
+            # 드래그 결과를 session_state에 즉시 반영
+            st.session_state['edit_schedule']['time_slots'] = updated_slots
+
+            st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
             if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary", key='apply_edit'):
-                edited_df = _schedule_data_to_df(edit_data)
+                edited_df = _schedule_data_to_df(st.session_state['edit_schedule'])
                 new_excel_bytes = regenerate_excel_from_df(edited_df)
                 st.session_state['edited_excel_bytes'] = new_excel_bytes
                 prev = st.session_state.get('excel_dl_key', 'excel_dl_0')
-                n = int(prev.split('_')[-1]) + 1
-                st.session_state['excel_dl_key'] = f'excel_dl_{n}'
+                n_key = int(prev.split('_')[-1]) + 1
+                st.session_state['excel_dl_key'] = f'excel_dl_{n_key}'
                 st.success("✅ Excel이 재생성되었습니다. 상단 'Excel 다운로드' 버튼으로 받으세요.")
                 st.rerun()
 
