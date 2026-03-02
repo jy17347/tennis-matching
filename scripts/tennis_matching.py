@@ -1127,7 +1127,6 @@ class TennisMatchingSystem:
                 stats_data.append({
                     '성명': p.name,
                     '성별': gender_str,
-                    '실력': p.skill,
                     '참여횟수': p.matches_played,
                     '남복' if p.gender == 1 else '여복': p.same_doubles if p.same_doubles > 0 else '-',
                     '혼복': p.mixed_matches if p.mixed_matches > 0 else '-'
