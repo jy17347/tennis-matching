@@ -21,15 +21,12 @@ except ImportError:
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
-# match_editor 컴포넌트 (로컬 HTML, CDN 불필요)
-import streamlit.components.v1 as components
-_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), 'components', 'match_editor')
+# streamlit-sortables (드래그앤드롭 편집)
 try:
-    _match_editor = components.declare_component('match_editor', path=_COMPONENT_DIR)
-    EDITOR_AVAILABLE = True
-except Exception:
-    _match_editor = None
-    EDITOR_AVAILABLE = False
+    from streamlit_sortables import sort_items
+    SORTABLES_AVAILABLE = True
+except ImportError:
+    SORTABLES_AVAILABLE = False
 
 # 페이지 설정
 st.set_page_config(
@@ -326,40 +323,127 @@ def display_matching_result():
         else:
             st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
 
-    # ── 탭2: 드래그앤드롭 편집 (PDF 형태 테이블) ─────────
+    # ── 탭2: 테이블 보기 + 드래그앤드롭 편집 ──────────────
     with tab_table:
         schedule_data  = result.get('schedule_data')
         player_genders = result.get('player_genders', [])
 
         if schedule_data is None:
             st.info("스케줄 데이터가 없습니다.")
-        elif not EDITOR_AVAILABLE:
-            st.warning("⚠️ match_editor 컴포넌트를 불러올 수 없습니다.")
         else:
             import copy
             if 'edit_schedule' not in st.session_state:
                 st.session_state['edit_schedule'] = copy.deepcopy(schedule_data)
 
-            st.caption("💡 남자 선수 카드는 파란색, 여자 선수 카드는 빨간색입니다. 카드를 드래그해 코트/벤치 간 이동 후 '적용' 버튼을 눌러주세요.")
+            gender_map = {pg['name']: pg['gender'] for pg in player_genders}
 
-            # 컴포넌트 높이 계산 (타임 수 × 행 높이)
-            num_slots = len(st.session_state['edit_schedule']['time_slots'])
-            component_height = max(300, num_slots * 180 + 80)
+            # ── PDF 형태 HTML 테이블 렌더링 ──────────────────
+            TYPE_BG  = {'남복': '#DDEBF7', '여복': '#FCE4D6', '혼복': '#E2EFDA'}
+            TYPE_HDR = {'남복': '#4472C4', '여복': '#C0504D', '혼복': '#4CAF50'}
+            edit_sd  = st.session_state['edit_schedule']
+            courts_all = sorted({c['court'] for s in edit_sd['time_slots'] for c in s['courts']})
 
-            # HTML 컴포넌트 렌더 (PDF 형태 테이블 + 드래그앤드롭)
-            new_schedule = _match_editor(
-                schedule_data=st.session_state['edit_schedule'],
-                player_genders=player_genders,
-                key='match_editor_main',
-                default=None,
-                height=component_height,
-            )
+            col_w   = max(120, min(200, 700 // (len(courts_all) + 1)))
+            th_style = "background:#4472C4;color:#fff;font-weight:700;font-size:13px;padding:7px 6px;text-align:center;border:1px solid #2a55a3;"
+            bench_th = "background:#4472C4;color:#fff;font-weight:700;font-size:13px;padding:7px 6px;text-align:center;border:1px solid #2a55a3;width:110px;"
 
-            # 컴포넌트에서 드래그 결과가 반환되면 session_state 업데이트
-            if new_schedule is not None:
-                st.session_state['edit_schedule'] = new_schedule
+            html  = f"<table style='border-collapse:collapse;width:100%;font-family:Malgun Gothic,sans-serif;font-size:12px;'>"
+            html += "<thead><tr>"
+            html += f"<th style='{th_style}width:52px;'>타임</th>"
+            for c in courts_all:
+                html += f"<th style='{th_style}width:{col_w}px;'>코트 {c}</th>"
+            html += f"<th style='{bench_th}'>벤치</th>"
+            html += "</tr></thead><tbody>"
 
-            st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
+            for slot in edit_sd['time_slots']:
+                t = slot['time']
+                court_map = {c['court']: c for c in slot['courts']}
+                html += "<tr>"
+                html += f"<td style='background:#D6DCE5;font-weight:700;text-align:center;vertical-align:middle;border:1px solid #bbb;padding:4px;'>{t}타임</td>"
+                for cn in courts_all:
+                    court = court_map.get(cn)
+                    if not court:
+                        html += "<td style='background:#f5f5f5;border:1px solid #bbb;text-align:center;color:#aaa;'>-</td>"
+                        continue
+                    bg   = TYPE_BG.get(court['type'], '#fff')
+                    hdr  = TYPE_HDR.get(court['type'], '#555')
+                    t1   = court['team1']
+                    t2   = court['team2']
+                    ok   = len(t1) == 2 and len(t2) == 2
+                    warn = '' if ok else f"<div style='color:#c00;font-size:10px;'>⚠️ {len(t1)}+{len(t2)}명</div>"
+                    p1 = ' & '.join(t1) if t1 else '-'
+                    p2 = ' & '.join(t2) if t2 else '-'
+                    html += (
+                        f"<td style='background:{bg};border:1px solid #bbb;padding:5px 4px;vertical-align:top;'>"
+                        f"<div style='background:{hdr};color:#fff;border-radius:9px;font-size:10px;font-weight:700;display:inline-block;padding:1px 7px;margin-bottom:3px;'>{court['type']}</div>"
+                        f"<div style='font-size:11px;color:#333;'><b>팀1</b> {p1}</div>"
+                        f"<div style='font-size:10px;color:#888;text-align:center;font-weight:700;'>vs</div>"
+                        f"<div style='font-size:11px;color:#333;'><b>팀2</b> {p2}</div>"
+                        f"{warn}</td>"
+                    )
+                bench = slot.get('bench', [])
+                bench_txt = '<br>'.join(bench) if bench else '<span style="color:#aaa">없음</span>'
+                html += f"<td style='background:#FFF2CC;border:1px solid #bbb;padding:5px 4px;vertical-align:top;font-size:11px;'>{bench_txt}</td>"
+                html += "</tr>"
+
+            html += "</tbody></table>"
+            st.markdown(html, unsafe_allow_html=True)
+
+            # ── 드래그앤드롭 편집 섹션 ───────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("✏️ 선수 배치 편집 (드래그앤드롭)", expanded=False):
+                if not SORTABLES_AVAILABLE:
+                    st.warning("`pip install streamlit-sortables` 설치 필요")
+                else:
+                    st.caption("💡 카드를 드래그해 같은 타임 안에서 코트/벤치 간 이동 후 '적용' 버튼을 누르세요.")
+                    updated_slots = []
+                    for slot in edit_sd['time_slots']:
+                        t      = slot['time']
+                        courts = slot['courts']
+                        bench  = slot['bench']
+
+                        st.markdown(
+                            f"<div style='background:#4472C4;color:#fff;font-weight:700;"
+                            f"padding:5px 12px;border-radius:6px 6px 0 0;"
+                            f"margin-top:10px;font-size:13px;'>⏱ {t}타임</div>",
+                            unsafe_allow_html=True
+                        )
+                        TYPE_TAG = {'남복': '🔵', '여복': '🔴', '혼복': '🟢'}
+                        containers = [{'header': '🏃 벤치', 'items': list(bench)}]
+                        for court in courts:
+                            c     = court['court']
+                            ctype = court['type']
+                            tag   = TYPE_TAG.get(ctype, '')
+                            containers.append({'header': f"{tag} 코트{c} 팀1 [{ctype}]", 'items': list(court['team1'])})
+                            containers.append({'header': f"{tag} 코트{c} 팀2 [{ctype}]", 'items': list(court['team2'])})
+
+                        result_containers = sort_items(
+                            containers, multi_containers=True, direction='horizontal', key=f'sort_{t}'
+                        )
+
+                        import re
+                        new_slot  = {'time': t, 'bench': [], 'courts': []}
+                        court_tmp = {}
+                        for rc in result_containers:
+                            header = rc['header']
+                            items  = rc['items']
+                            if '벤치' in header:
+                                new_slot['bench'] = items
+                            else:
+                                m2 = re.search(r'코트(\d+)\s*팀(\d+).*\[(.+?)\]', header)
+                                if m2:
+                                    cn2 = int(m2.group(1)); tn = int(m2.group(2)); ctype = m2.group(3)
+                                    if cn2 not in court_tmp:
+                                        court_tmp[cn2] = {'court': cn2, 'type': ctype, 'team1': [], 'team2': []}
+                                    if tn == 1: court_tmp[cn2]['team1'] = items
+                                    else:       court_tmp[cn2]['team2'] = items
+                        for cn2 in sorted(court_tmp):
+                            new_slot['courts'].append(court_tmp[cn2])
+                        updated_slots.append(new_slot)
+
+                    st.session_state['edit_schedule']['time_slots'] = updated_slots
+
+            st.markdown("<hr style='margin:8px 0'>", unsafe_allow_html=True)
             if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary", key='apply_edit'):
                 edited_df = _schedule_data_to_df(st.session_state['edit_schedule'])
                 new_excel_bytes = regenerate_excel_from_df(edited_df)
