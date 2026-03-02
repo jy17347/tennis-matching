@@ -225,6 +225,10 @@ def main():
     # 커스텀 CSS 스타일
     st.markdown("""
     <style>
+    /* 우측 상단 툴바 (Share, GitHub 아이콘 등) 숨기기 */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
     /* 탭 스타일 */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
