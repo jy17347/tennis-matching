@@ -21,12 +21,15 @@ except ImportError:
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
-# streamlit-sortables
+# match_editor 컴포넌트 (로컬 HTML, CDN 불필요)
+import streamlit.components.v1 as components
+_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), 'components', 'match_editor')
 try:
-    from streamlit_sortables import sort_items
-    SORTABLES_AVAILABLE = True
-except ImportError:
-    SORTABLES_AVAILABLE = False
+    _match_editor = components.declare_component('match_editor', path=_COMPONENT_DIR)
+    EDITOR_AVAILABLE = True
+except Exception:
+    _match_editor = None
+    EDITOR_AVAILABLE = False
 
 # 페이지 설정
 st.set_page_config(
@@ -323,110 +326,38 @@ def display_matching_result():
         else:
             st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
 
-    # ── 탭2: 드래그앤드롭 편집 ────────────────────────────
+    # ── 탭2: 드래그앤드롭 편집 (PDF 형태 테이블) ─────────
     with tab_table:
         schedule_data  = result.get('schedule_data')
         player_genders = result.get('player_genders', [])
-        player_names   = result.get('player_names', [])
 
         if schedule_data is None:
             st.info("스케줄 데이터가 없습니다.")
-        elif not SORTABLES_AVAILABLE:
-            st.warning("⚠️ streamlit-sortables 설치 필요: `pip install streamlit-sortables`")
+        elif not EDITOR_AVAILABLE:
+            st.warning("⚠️ match_editor 컴포넌트를 불러올 수 없습니다.")
         else:
-            gender_map = {pg['name']: pg['gender'] for pg in player_genders}
-            TYPE_COLORS = {'남복': '#DDEBF7', '여복': '#FCE4D6', '혼복': '#E2EFDA'}
-
             import copy
             if 'edit_schedule' not in st.session_state:
                 st.session_state['edit_schedule'] = copy.deepcopy(schedule_data)
 
-            edit_data = st.session_state['edit_schedule']
+            st.caption("💡 남자 선수 카드는 파란색, 여자 선수 카드는 빨간색입니다. 카드를 드래그해 코트/벤치 간 이동 후 '적용' 버튼을 눌러주세요.")
 
-            st.caption("💡 카드를 드래그해 같은 타임 안에서 코트/벤치 간 이동이 가능합니다. 변경 후 하단 '적용' 버튼을 누르세요.")
+            # 컴포넌트 높이 계산 (타임 수 × 행 높이)
+            num_slots = len(st.session_state['edit_schedule']['time_slots'])
+            component_height = max(300, num_slots * 180 + 80)
 
-            updated_slots = []
-            for slot in edit_data['time_slots']:
-                t      = slot['time']
-                courts = slot['courts']
-                bench  = slot['bench']
+            # HTML 컴포넌트 렌더 (PDF 형태 테이블 + 드래그앤드롭)
+            new_schedule = _match_editor(
+                schedule_data=st.session_state['edit_schedule'],
+                player_genders=player_genders,
+                key='match_editor_main',
+                default=None,
+                height=component_height,
+            )
 
-                st.markdown(
-                    f"<div style='background:#4472C4;color:#fff;font-weight:700;"
-                    f"padding:6px 14px;border-radius:8px 8px 0 0;"
-                    f"margin-top:14px;font-size:14px;'>⏱ {t}타임</div>",
-                    unsafe_allow_html=True
-                )
-
-                # sort_items 컨테이너 구성
-                containers = [{'header': '🏃 벤치', 'items': list(bench)}]
-                for court in courts:
-                    c     = court['court']
-                    ctype = court['type']
-                    color_tag = {'남복': '🔵', '여복': '🔴', '혼복': '🟢'}.get(ctype, '')
-                    containers.append({
-                        'header': f"{color_tag} 코트{c} 팀1 [{ctype}]",
-                        'items':  list(court['team1'])
-                    })
-                    containers.append({
-                        'header': f"{color_tag} 코트{c} 팀2 [{ctype}]",
-                        'items':  list(court['team2'])
-                    })
-
-                result_containers = sort_items(
-                    containers,
-                    multi_containers=True,
-                    direction='horizontal',
-                    key=f'sort_{t}'
-                )
-
-                # 결과 파싱 → slot 재구성
-                new_slot  = {'time': t, 'bench': [], 'courts': []}
-                court_tmp = {}  # court_num -> {team1, team2, type}
-
-                for rc in result_containers:
-                    header = rc['header']
-                    items  = rc['items']
-                    if '벤치' in header:
-                        new_slot['bench'] = items
-                    else:
-                        # 헤더 형식: "🔵 코트1 팀1 [남복]"
-                        import re
-                        m = re.search(r'코트(\d+)\s*팀(\d+).*\[(.+?)\]', header)
-                        if m:
-                            cn   = int(m.group(1))
-                            tn   = int(m.group(2))
-                            ctype = m.group(3)
-                            if cn not in court_tmp:
-                                court_tmp[cn] = {'court': cn, 'type': ctype,
-                                                 'team1': [], 'team2': []}
-                            if tn == 1:
-                                court_tmp[cn]['team1'] = items
-                            else:
-                                court_tmp[cn]['team2'] = items
-
-                for cn in sorted(court_tmp):
-                    new_slot['courts'].append(court_tmp[cn])
-
-                updated_slots.append(new_slot)
-
-                # 각 코트 인원 수 경고
-                warn_cols = st.columns(len(courts) + 1)
-                with warn_cols[0]:
-                    st.caption(f"벤치 {len(new_slot['bench'])}명")
-                for ci, court in enumerate(new_slot['courts']):
-                    with warn_cols[ci + 1]:
-                        t1n = len(court['team1'])
-                        t2n = len(court['team2'])
-                        ok  = t1n == 2 and t2n == 2
-                        msg = f"코트{court['court']}: {t1n}+{t2n}명"
-                        if ok:
-                            st.caption(f"✅ {msg}")
-                        else:
-                            st.caption(f"⚠️ {msg} (각 2명 필요)")
-
-            # 드래그 결과를 session_state에 즉시 반영
-            st.session_state['edit_schedule']['time_slots'] = updated_slots
+            # 컴포넌트에서 드래그 결과가 반환되면 session_state 업데이트
+            if new_schedule is not None:
+                st.session_state['edit_schedule'] = new_schedule
 
             st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
             if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary", key='apply_edit'):

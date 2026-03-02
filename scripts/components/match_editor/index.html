@@ -1,444 +1,258 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-<!-- streamlit-component-lib: postMessage 직접 구현 (CDN 불필요) -->
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 6px; font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; font-size: 13px; background: #fff; }
 
-  body {
-    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
-    background: #f7f8fa;
-    padding: 8px;
-  }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    thead th {
+      background: #4472C4; color: #fff; font-weight: 700; font-size: 13px;
+      padding: 8px 6px; text-align: center; border: 1px solid #2a55a3;
+    }
+    .time-cell {
+      background: #D6DCE5; font-weight: 700; text-align: center; vertical-align: middle;
+      border: 1px solid #bbb; font-size: 13px; padding: 4px; width: 56px;
+    }
+    .court-cell {
+      border: 1px solid #bbb; padding: 6px 4px; vertical-align: top;
+    }
+    .court-nambok { background: #DDEBF7; }
+    .court-yebok  { background: #FCE4D6; }
+    .court-honbok { background: #E2EFDA; }
+    .court-empty  { background: #f9f9f9; text-align: center; color: #999; }
 
-  .time-slot {
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
-    margin-bottom: 14px;
-    overflow: hidden;
-  }
-  .time-header {
-    background: #4472C4;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 700;
-    padding: 7px 14px;
-    letter-spacing: 0.5px;
-  }
-  .time-body {
-    display: flex;
-    gap: 8px;
-    padding: 10px;
-    overflow-x: auto;
-  }
+    .bench-cell {
+      background: #FFF2CC; border: 1px solid #bbb; padding: 6px 4px; vertical-align: top; width: 130px;
+    }
 
-  .lane {
-    flex: 1;
-    min-width: 120px;
-    max-width: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .lane-header {
-    font-size: 11px;
-    font-weight: 700;
-    text-align: center;
-    padding: 4px 6px;
-    border-radius: 5px;
-    margin-bottom: 2px;
-  }
-  .lane-header.court  { background: #D6E4F7; color: #1f4788; }
-  .lane-header.bench  { background: #f0f0f0; color: #555; }
+    .match-type-badge {
+      display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px;
+      border-radius: 10px; margin-bottom: 4px; color: #fff;
+    }
+    .badge-nambok { background: #4472C4; }
+    .badge-yebok  { background: #C0504D; }
+    .badge-honbok { background: #4CAF50; }
 
-  .type-badge {
-    font-size: 10px;
-    text-align: center;
-    padding: 2px 0;
-    border-radius: 4px;
-    margin-bottom: 3px;
-    font-weight: 600;
-  }
-  .type-남복 { background: #DDEBF7; color: #1f4788; }
-  .type-여복 { background: #FCE4D6; color: #843c0c; }
-  .type-혼복 { background: #E2EFDA; color: #375623; }
+    .vs-label { font-size: 11px; color: #888; text-align: center; margin: 2px 0; font-weight: 700; }
+    .team-label { font-size: 10px; color: #555; margin: 2px 0; font-weight: 700; }
+    .bench-label { font-size: 10px; color: #888; margin-bottom: 4px; font-weight: 700; }
 
-  .team-label {
-    font-size: 9px;
-    color: #888;
-    text-align: center;
-    padding: 1px 0;
-    margin-top: 3px;
-    border-top: 1px dashed #ddd;
-  }
+    .drop-zone {
+      min-height: 28px; border-radius: 4px; padding: 2px;
+      transition: background 0.15s;
+    }
+    .drop-zone.drag-over {
+      background: rgba(0, 100, 255, 0.12);
+      outline: 1.5px dashed #4472C4;
+    }
+    .bench-drop {
+      min-height: 28px; border-radius: 4px; padding: 2px;
+      transition: background 0.15s;
+    }
+    .bench-drop.drag-over {
+      background: rgba(255, 180, 0, 0.18);
+      outline: 1.5px dashed #d4a000;
+    }
 
-  .player-list {
-    min-height: 36px;
-    border: 1.5px dashed #ccc;
-    border-radius: 6px;
-    padding: 4px;
-    background: #fafafa;
-    transition: background 0.15s;
-  }
-  .player-list.drag-over {
-    background: #e8f0fe;
-    border-color: #4472C4;
-  }
-  .player-list.invalid {
-    border-color: #e05c5c;
-    background: #fff0f0;
-  }
+    .player-card {
+      display: inline-block; background: #fff; border: 1px solid #aaa;
+      border-radius: 12px; padding: 2px 8px; margin: 2px; font-size: 12px;
+      cursor: grab; user-select: none; transition: box-shadow 0.1s, opacity 0.1s;
+      white-space: nowrap;
+    }
+    .player-card:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
+    .player-card.dragging { opacity: 0.4; box-shadow: 0 4px 12px rgba(0,0,0,0.25); cursor: grabbing; }
+    .player-card.male   { border-color: #4472C4; color: #1a3a6b; }
+    .player-card.female { border-color: #C0504D; color: #6b1a1a; }
 
-  .player-card {
-    background: #fff;
-    border: 1px solid #d0d7e3;
-    border-radius: 5px;
-    padding: 5px 8px;
-    margin-bottom: 3px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: grab;
-    text-align: center;
-    user-select: none;
-    transition: box-shadow 0.12s, transform 0.12s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .player-card:hover { box-shadow: 0 2px 6px rgba(68,114,196,0.18); }
-  .player-card.sortable-chosen { opacity: 0.7; transform: scale(1.04); }
-  .player-card.sortable-ghost  { opacity: 0.25; }
-  .player-card.male   { border-left: 3px solid #4472C4; }
-  .player-card.female { border-left: 3px solid #E05F5F; }
-
-  .bench-list {
-    min-height: 20px;
-  }
-  .bench-list .player-card {
-    background: #f5f5f5;
-    border-color: #ccc;
-    font-weight: 400;
-    color: #555;
-  }
-
-  .error-msg {
-    font-size: 10px;
-    color: #c00;
-    text-align: center;
-    padding: 2px 0;
-    min-height: 14px;
-  }
-
-  /* 범례 */
-  .legend {
-    display: flex;
-    gap: 10px;
-    padding: 6px 10px;
-    font-size: 11px;
-    border-top: 1px solid #eee;
-    flex-wrap: wrap;
-  }
-  .legend-item { display: flex; align-items: center; gap: 4px; }
-  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
-</style>
+    .warn-badge {
+      font-size: 10px; color: #c00; background: #fff0f0; border: 1px solid #fcc;
+      border-radius: 4px; padding: 1px 5px; margin-top: 3px; display: inline-block;
+    }
+    .ok-badge {
+      font-size: 10px; color: #080; background: #f0fff0; border: 1px solid #cfc;
+      border-radius: 4px; padding: 1px 5px; margin-top: 3px; display: inline-block;
+    }
+  </style>
 </head>
 <body>
+  <div id="app"></div>
 
-<div id="root"></div>
-
-<div class="legend">
-  <span style="font-weight:700; font-size:11px; color:#555;">범례:</span>
-  <span class="legend-item"><span class="legend-dot" style="background:#DDEBF7;border:1px solid #4472C4"></span>남복</span>
-  <span class="legend-item"><span class="legend-dot" style="background:#FCE4D6;border:1px solid #E05F5F"></span>여복</span>
-  <span class="legend-item"><span class="legend-dot" style="background:#E2EFDA;border:1px solid #375623"></span>혼복</span>
-  <span class="legend-item"><span style="border-left:3px solid #4472C4; padding-left:4px;">남자</span></span>
-  <span class="legend-item"><span style="border-left:3px solid #E05F5F; padding-left:4px;">여자</span></span>
-</div>
-
-<script>
-// ── Streamlit postMessage 직접 구현 (외부 CDN 없이) ─────────────────────────
-const Streamlit = {
-  setComponentReady() {
-    window.parent.postMessage({ type: 'streamlit:componentReady', apiVersion: 1 }, '*');
-  },
-  setComponentValue(value) {
-    window.parent.postMessage({ type: 'streamlit:setComponentValue', value }, '*');
-  },
-  setFrameHeight(height) {
-    window.parent.postMessage({ type: 'streamlit:setFrameHeight', height }, '*');
-  },
-};
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─── State ────────────────────────────────────────────────────────────────────
-let scheduleData   = null;  // { time_slots: [...] }
-let playerGenders  = {};    // { name: 'male'|'female' }
-let sortableInsts  = [];    // all SortableJS instances
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function genderClass(name) {
-  return playerGenders[name] === 'female' ? 'female' : 'male';
-}
-
-function courtListId(time, court, listIdx) {
-  return `t${time}_c${court}_l${listIdx}`;
-}
-function benchListId(time) {
-  return `t${time}_bench`;
-}
-
-// rebuilds the full scheduleData from the DOM
-function readCurrentState() {
-  const result = { time_slots: [] };
-
-  scheduleData.time_slots.forEach(slot => {
-    const t  = slot.time;
-    const newSlot = { time: t, courts: [], bench: [] };
-
-    // bench
-    const benchEl = document.getElementById(benchListId(t));
-    if (benchEl) {
-      benchEl.querySelectorAll('.player-card').forEach(card => {
-        newSlot.bench.push(card.dataset.name);
-      });
-    }
-
-    // courts
-    slot.courts.forEach(court => {
-      const c = court.court;
-      const l0 = document.getElementById(courtListId(t, c, 0));
-      const l1 = document.getElementById(courtListId(t, c, 1));
-      const t1 = l0 ? [...l0.querySelectorAll('.player-card')].map(x => x.dataset.name) : [];
-      const t2 = l1 ? [...l1.querySelectorAll('.player-card')].map(x => x.dataset.name) : [];
-      newSlot.courts.push({
-        court: c,
-        type:  court.type,
-        team1: t1,
-        team2: t2
-      });
-    });
-
-    result.time_slots.push(newSlot);
-  });
-
-  return result;
-}
-
-// validate court player counts, highlight invalid lists
-function validateAndHighlight() {
-  let ok = true;
-  scheduleData.time_slots.forEach(slot => {
-    slot.courts.forEach(court => {
-      const t = slot.time, c = court.court;
-      [0, 1].forEach(idx => {
-        const el  = document.getElementById(courtListId(t, c, idx));
-        const err = document.getElementById(`err_${courtListId(t, c, idx)}`);
-        if (!el) return;
-        const n = el.querySelectorAll('.player-card').length;
-        if (n !== 2) {
-          el.classList.add('invalid');
-          if (err) err.textContent = `2명 필요 (현재 ${n}명)`;
-          ok = false;
-        } else {
-          el.classList.remove('invalid');
-          if (err) err.textContent = '';
+  <script>
+    /* Streamlit Component API: self-contained, no CDN needed */
+    var Streamlit = (function () {
+      function sendMsg(msg) { window.parent.postMessage(msg, '*'); }
+      function setComponentValue(val) { sendMsg({ type: 'streamlit:setComponentValue', value: val }); }
+      function setFrameHeight(h) { sendMsg({ type: 'streamlit:setFrameHeight', height: h != null ? h : document.body.scrollHeight + 16 }); }
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'streamlit:render') {
+          window._onRender && window._onRender(e.data.args);
         }
       });
-    });
-  });
-  return ok;
-}
+      sendMsg({ type: 'streamlit:componentReady', apiVersion: 1 });
+      return { setComponentValue: setComponentValue, setFrameHeight: setFrameHeight };
+    })();
 
-// emit updated state to Streamlit
-function emit() {
-  const state = readCurrentState();
-  scheduleData = state;          // keep in sync
-  validateAndHighlight();
-  Streamlit.setComponentValue(state);
-  Streamlit.setFrameHeight(document.body.scrollHeight + 20);
-}
+    var scheduleData = null;
+    var playerGenders = {};
 
-// ─── Render ───────────────────────────────────────────────────────────────────
-function render() {
-  const root = document.getElementById('root');
-  root.innerHTML = '';
-  sortableInsts.forEach(s => s.destroy());
-  sortableInsts = [];
+    function renderTable(args) {
+      scheduleData = JSON.parse(JSON.stringify(args.schedule_data));
+      playerGenders = {};
+      (args.player_genders || []).forEach(function (p) { playerGenders[p.name] = p.gender; });
 
-  scheduleData.time_slots.forEach(slot => {
-    const t    = slot.time;
-    const div  = document.createElement('div');
-    div.className = 'time-slot';
+      var slots = scheduleData.time_slots;
+      var numCourts = slots.reduce(function (mx, s) { return Math.max(mx, s.courts.length); }, 0) || 3;
 
-    const header = document.createElement('div');
-    header.className = 'time-header';
-    header.textContent = `⏱ ${t}타임`;
-    div.appendChild(header);
+      var html = '<table><thead><tr>';
+      html += '<th style="width:56px">타임</th>';
+      for (var i = 1; i <= numCourts; i++) html += '<th>코트 ' + i + '</th>';
+      html += '<th style="width:130px">벤치</th>';
+      html += '</tr></thead><tbody>';
 
-    const body = document.createElement('div');
-    body.className = 'time-body';
+      slots.forEach(function (slot, si) {
+        var typeBadgeMap = { '남복': 'badge-nambok', '여복': 'badge-yebok', '혼복': 'badge-honbok' };
+        var cellColorMap  = { '남복': 'court-nambok', '여복': 'court-yebok',  '혼복': 'court-honbok' };
 
-    // ── Bench lane ──────────────────────────────────────────────────────────
-    const benchLane = makeBenchLane(t, slot.bench, slot.courts);
-    body.appendChild(benchLane);
+        html += '<tr>';
+        html += '<td class="time-cell">' + slot.time + '타임</td>';
 
-    // shared SortableJS group per time slot (allows cross-court drag)
-    const groupName = `time_${t}`;
+        for (var ci = 0; ci < numCourts; ci++) {
+          var court = slot.courts[ci];
+          if (!court) { html += '<td class="court-cell court-empty">-</td>'; continue; }
+          var cellCls  = cellColorMap[court.type] || '';
+          var badgeCls = typeBadgeMap[court.type] || '';
+          var t1n = court.team1.length, t2n = court.team2.length;
+          var ok = t1n === 2 && t2n === 2;
+          var badge = ok
+            ? '<span class="ok-badge">&#10003; ' + t1n + '+' + t2n + '</span>'
+            : '<span class="warn-badge">&#9888; ' + t1n + '+' + t2n + '</span>';
+          html += '<td class="court-cell ' + cellCls + '">';
+          html += '<div><span class="match-type-badge ' + badgeCls + '">' + court.type + '</span></div>';
+          html += '<div class="team-label">팀 1</div>';
+          html += '<div class="drop-zone" data-si="' + si + '" data-ci="' + ci + '" data-team="1">';
+          court.team1.forEach(function (name) { html += makeCard(name); });
+          html += '</div>';
+          html += '<div class="vs-label">vs</div>';
+          html += '<div class="team-label">팀 2</div>';
+          html += '<div class="drop-zone" data-si="' + si + '" data-ci="' + ci + '" data-team="2">';
+          court.team2.forEach(function (name) { html += makeCard(name); });
+          html += '</div>';
+          html += '<div>' + badge + '</div>';
+          html += '</td>';
+        }
 
-    // ── Court lanes ─────────────────────────────────────────────────────────
-    slot.courts.forEach(court => {
-      const c    = court.court;
-      const lane = document.createElement('div');
-      lane.className = 'lane';
-
-      const lh = document.createElement('div');
-      lh.className = 'lane-header court';
-      lh.textContent = `코트 ${c}`;
-      lane.appendChild(lh);
-
-      const badge = document.createElement('div');
-      badge.className = `type-badge type-${court.type}`;
-      badge.textContent = court.type;
-      lane.appendChild(badge);
-
-      // Team1 list
-      const t1Label = document.createElement('div');
-      t1Label.className = 'team-label';
-      t1Label.textContent = '팀 1';
-      lane.appendChild(t1Label);
-
-      const list1 = makePlayerList(courtListId(t, c, 0), court.team1);
-      lane.appendChild(list1);
-      const err1 = document.createElement('div');
-      err1.className = 'error-msg';
-      err1.id = `err_${courtListId(t, c, 0)}`;
-      lane.appendChild(err1);
-
-      // Team2 list
-      const t2Label = document.createElement('div');
-      t2Label.className = 'team-label';
-      t2Label.textContent = '팀 2';
-      lane.appendChild(t2Label);
-
-      const list2 = makePlayerList(courtListId(t, c, 1), court.team2);
-      lane.appendChild(list2);
-      const err2 = document.createElement('div');
-      err2.className = 'error-msg';
-      err2.id = `err_${courtListId(t, c, 1)}`;
-      lane.appendChild(err2);
-
-      body.appendChild(lane);
-
-      // ── SortableJS for Team1 & Team2 lists ────────────────────────────────
-      [list1, list2].forEach(list => {
-        const s = Sortable.create(list, {
-          group: groupName,
-          animation: 150,
-          ghostClass: 'sortable-ghost',
-          chosenClass: 'sortable-chosen',
-          dragoverBubble: false,
-          onAdd:  emit,
-          onRemove: emit,
-          onUpdate: emit,
-        });
-        sortableInsts.push(s);
+        html += '<td class="bench-cell">';
+        html += '<div class="bench-label">벤치</div>';
+        html += '<div class="bench-drop" data-si="' + si + '">';
+        slot.bench.forEach(function (name) { html += makeCard(name); });
+        html += '</div>';
+        html += '</td></tr>';
       });
-    });
 
-    div.appendChild(body);
-    root.appendChild(div);
-
-    // ── SortableJS for bench ─────────────────────────────────────────────────
-    const benchListEl = document.getElementById(benchListId(t));
-    if (benchListEl) {
-      const s = Sortable.create(benchListEl, {
-        group: groupName,
-        animation: 150,
-        ghostClass: 'sortable-ghost',
-        chosenClass: 'sortable-chosen',
-        onAdd:  emit,
-        onRemove: emit,
-        onUpdate: emit,
-      });
-      sortableInsts.push(s);
+      html += '</tbody></table>';
+      document.getElementById('app').innerHTML = html;
+      attachDnD();
+      setTimeout(function () { Streamlit.setFrameHeight(); }, 80);
     }
-  });
 
-  validateAndHighlight();
-}
+    function makeCard(name) {
+      var g = playerGenders[name] || 'male';
+      var cls = g === 'female' ? 'female' : 'male';
+      return '<div class="player-card ' + cls + '" draggable="true" data-name="' + escHtml(name) + '">' + escHtml(name) + '</div>';
+    }
 
-function makeBenchLane(time, benchPlayers, courts) {
-  const lane = document.createElement('div');
-  lane.className = 'lane';
-  lane.style.minWidth = '100px';
-  lane.style.maxWidth = '130px';
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
 
-  const lh = document.createElement('div');
-  lh.className = 'lane-header bench';
-  lh.textContent = '벤치';
-  lane.appendChild(lh);
+    /* Drag and Drop */
+    var dragCard = null;
 
-  const list = makePlayerList(benchListId(time), benchPlayers, true);
-  lane.appendChild(list);
-  return lane;
-}
+    function attachDnD() {
+      document.querySelectorAll('.player-card').forEach(function (card) {
+        card.addEventListener('dragstart', function (e) {
+          dragCard = card;
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', card.dataset.name);
+        });
+        card.addEventListener('dragend', function () {
+          if (dragCard) dragCard.classList.remove('dragging');
+          dragCard = null;
+          document.querySelectorAll('.drop-zone, .bench-drop').forEach(function (z) { z.classList.remove('drag-over'); });
+          updateWarningBadges();
+          Streamlit.setFrameHeight();
+        });
+        /* drop onto another card = insert before it */
+        card.addEventListener('dragover', function (e) { e.preventDefault(); if (card.parentElement) card.parentElement.classList.add('drag-over'); });
+        card.addEventListener('drop', function (e) {
+          e.preventDefault();
+          if (!dragCard || dragCard === card) return;
+          card.parentElement.classList.remove('drag-over');
+          card.parentElement.insertBefore(dragCard, card);
+          syncAndNotify();
+        });
+      });
 
-function makePlayerList(id, players, isBench = false) {
-  const ul = document.createElement('div');
-  ul.className = isBench ? 'player-list bench-list' : 'player-list';
-  ul.id = id;
+      document.querySelectorAll('.drop-zone, .bench-drop').forEach(function (zone) {
+        zone.addEventListener('dragover', function (e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+        zone.addEventListener('drop', function (e) {
+          e.preventDefault();
+          zone.classList.remove('drag-over');
+          if (!dragCard) return;
+          zone.appendChild(dragCard);
+          syncAndNotify();
+        });
+      });
+    }
 
-  players.forEach(name => {
-    ul.appendChild(makeCard(name));
-  });
-  return ul;
-}
+    function syncAndNotify() {
+      syncFromDOM();
+      Streamlit.setComponentValue(scheduleData);
+      updateWarningBadges();
+    }
 
-function makeCard(name) {
-  const card = document.createElement('div');
-  card.className = `player-card ${genderClass(name)}`;
-  card.dataset.name = name;
-  card.textContent  = name;
-  card.title = name;
-  return card;
-}
+    function syncFromDOM() {
+      var slots = scheduleData.time_slots;
+      slots.forEach(function (slot) {
+        slot.courts.forEach(function (court) { court.team1 = []; court.team2 = []; });
+        slot.bench = [];
+      });
+      document.querySelectorAll('.drop-zone[data-si]').forEach(function (zone) {
+        var si = +zone.dataset.si, ci = +zone.dataset.ci, ti = +zone.dataset.team;
+        var players = Array.from(zone.querySelectorAll('.player-card')).map(function (c) { return c.dataset.name; });
+        if (slots[si] && slots[si].courts[ci]) {
+          if (ti === 1) slots[si].courts[ci].team1 = players;
+          else          slots[si].courts[ci].team2 = players;
+        }
+      });
+      document.querySelectorAll('.bench-drop[data-si]').forEach(function (cell) {
+        var si = +cell.dataset.si;
+        var players = Array.from(cell.querySelectorAll('.player-card')).map(function (c) { return c.dataset.name; });
+        if (slots[si]) slots[si].bench = players;
+      });
+    }
 
-// ─── Streamlit Integration ────────────────────────────────────────────────────
-function onRender(event) {
-  const data = event.detail;
-  if (!data || !data.args) return;
+    function updateWarningBadges() {
+      document.querySelectorAll('.court-cell').forEach(function (cell) {
+        var dz = cell.querySelectorAll('.drop-zone');
+        if (dz.length < 2) return;
+        var t1n = dz[0].querySelectorAll('.player-card').length;
+        var t2n = dz[1].querySelectorAll('.player-card').length;
+        var ok = t1n === 2 && t2n === 2;
+        var badge = cell.querySelector('.ok-badge, .warn-badge');
+        if (!badge) return;
+        if (ok) { badge.className = 'ok-badge'; badge.textContent = '\u2713 ' + t1n + '+' + t2n; }
+        else    { badge.className = 'warn-badge'; badge.textContent = '\u26a0 ' + t1n + '+' + t2n; }
+      });
+    }
 
-  const args = data.args;
-
-  // build gender map
-  playerGenders = {};
-  (args.player_genders || []).forEach(pg => {
-    playerGenders[pg.name] = pg.gender;
-  });
-
-  // only re-render if schedule changed (not on pure height update)
-  const newJson = JSON.stringify(args.schedule_data);
-  if (newJson !== window._lastJson) {
-    window._lastJson = newJson;
-    scheduleData = args.schedule_data;
-    render();
-  }
-
-  // set component height to match content
-  Streamlit.setFrameHeight(document.body.scrollHeight + 20);
-}
-
-window.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'streamlit:render') {
-    onRender(e.data.args || {});
-  }
-});
-Streamlit.setComponentReady();
-Streamlit.setFrameHeight(400);
-</script>
+    window._onRender = renderTable;
+  </script>
 </body>
 </html>
