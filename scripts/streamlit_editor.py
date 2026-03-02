@@ -170,7 +170,7 @@ def display_matching_result():
     with col_pdf:
         if result['pdf_bytes']:
             st.download_button(
-                label="📥 PDF 다운로드",
+                label=" PDF 다운로드",
                 data=result['pdf_bytes'],
                 file_name=f'테니스_매칭결과_{timestamp}.pdf',
                 mime='application/pdf',
@@ -179,7 +179,7 @@ def display_matching_result():
     with col_excel:
         if result['excel_bytes']:
             st.download_button(
-                label="📊 Excel 다운로드",
+                label=" Excel 다운로드",
                 data=result['excel_bytes'],
                 file_name=f'테니스_매칭결과_{timestamp}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -189,7 +189,7 @@ def display_matching_result():
     # 매칭 결과 이미지 미리보기
     if result['pdf_generated']:
         st.markdown("---")
-        st.subheader("📄 매칭 결과")
+        st.subheader(" 매칭 결과")
         if result['pdf_images']:
             for i, img_bytes in enumerate(result['pdf_images']):
                 st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
@@ -205,7 +205,7 @@ def display_matching_result():
     
     # 통계
     st.markdown("---")
-    st.subheader("📊 매칭 통계")
+    st.subheader(" 매칭 통계")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("남복 경기", result['match_types']['남복'])
@@ -313,7 +313,7 @@ def main():
             # st.markdown(f"**표시 중: {len(display_df)}명**")
             
             # 데이터 편집기
-            st.markdown("### ✏️ 데이터 편집")
+            st.markdown("### 데이터 편집")
             st.markdown("※ '참여 (1)' 열에 'O', '1' 또는 1을 입력하면 참가자로 등록")
             
             edited_df = st.data_editor(
@@ -357,7 +357,7 @@ def main():
             
             # 참가자 요약
             st.markdown("---")
-            st.subheader("📊 참가자 현황")
+            st.subheader(" 참가자 현황")
             
             participants = df[df['참여 (1)'].isin(['O', '1', 1])]
             
@@ -426,7 +426,7 @@ def main():
                     st.success("✅ 매칭 생성 가능")
                     
                     # 매칭 옵션
-                    st.markdown("### ⚙️ 매칭 옵션")
+                    st.markdown("### 매칭 옵션")
                     
                     col1, col2 = st.columns(2)
                     with col1:
