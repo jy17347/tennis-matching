@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-<script src="https://unpkg.com/streamlit-component-lib/dist/index.js" crossorigin></script>
+<!-- streamlit-component-lib: postMessage 직접 구현 (CDN 불필요) -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -160,6 +160,20 @@
 </div>
 
 <script>
+// ── Streamlit postMessage 직접 구현 (외부 CDN 없이) ─────────────────────────
+const Streamlit = {
+  setComponentReady() {
+    window.parent.postMessage({ type: 'streamlit:componentReady', apiVersion: 1 }, '*');
+  },
+  setComponentValue(value) {
+    window.parent.postMessage({ type: 'streamlit:setComponentValue', value }, '*');
+  },
+  setFrameHeight(height) {
+    window.parent.postMessage({ type: 'streamlit:setFrameHeight', height }, '*');
+  },
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── State ────────────────────────────────────────────────────────────────────
 let scheduleData   = null;  // { time_slots: [...] }
 let playerGenders  = {};    // { name: 'male'|'female' }
@@ -245,6 +259,7 @@ function emit() {
   scheduleData = state;          // keep in sync
   validateAndHighlight();
   Streamlit.setComponentValue(state);
+  Streamlit.setFrameHeight(document.body.scrollHeight + 20);
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
@@ -417,7 +432,11 @@ function onRender(event) {
   Streamlit.setFrameHeight(document.body.scrollHeight + 20);
 }
 
-window.addEventListener('streamlit:render', onRender);
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'streamlit:render') {
+    onRender(e.data.args || {});
+  }
+});
 Streamlit.setComponentReady();
 Streamlit.setFrameHeight(400);
 </script>
