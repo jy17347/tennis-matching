@@ -25,6 +25,11 @@ try:
 except ImportError:
     AGGRID_AVAILABLE = False
 
+# 커스텀 드래그앤드롭 컴포넌트
+import streamlit.components.v1 as components
+_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), 'components', 'match_editor')
+_match_editor = components.declare_component('match_editor', path=_COMPONENT_DIR)
+
 # tennis_matching 모듈 import
 from tennis_matching import TennisMatchingSystem
 
@@ -157,6 +162,11 @@ def run_matching_algorithm(iterations=1000):
             schedule_df = pd.DataFrame(schedule_rows)
             player_names = sorted([p.name for p in system.players])
 
+            # 컴포넌트용 schedule_data 생성 (타임별 코트+벤치)
+            player_gender_map = {p.name: ('female' if p.gender == 2 else 'male') for p in system.players}
+            schedule_data = _build_schedule_data(system)
+            player_genders = [{'name': n, 'gender': g} for n, g in player_gender_map.items()]
+
             # 결과를 session_state에 저장
             st.session_state['matching_result'] = {
                 'timestamp': timestamp,
@@ -169,6 +179,8 @@ def run_matching_algorithm(iterations=1000):
                 'stats_df': stats_df,
                 'schedule_df': schedule_df,
                 'player_names': player_names,
+                'schedule_data': schedule_data,
+                'player_genders': player_genders,
             }
             return True
         else:
@@ -180,17 +192,62 @@ def run_matching_algorithm(iterations=1000):
         return False
 
 
+def _build_schedule_data(system):
+    """TennisMatchingSystem에서 컴포넌트용 schedule_data 딕셔너리 생성"""
+    time_slots_dict = {}
+    for match in sorted(system.schedule, key=lambda m: (m.time_slot, m.court)):
+        t = match.time_slot
+        if t not in time_slots_dict:
+            time_slots_dict[t] = {'time': t, 'courts': [], 'bench': []}
+        time_slots_dict[t]['courts'].append({
+            'court': match.court,
+            'type':  match.match_type,
+            'team1': [match.team1[0].name, match.team1[1].name],
+            'team2': [match.team2[0].name, match.team2[1].name],
+        })
+
+    # 벤치 계산 (참여한 적 있는 선수 중 해당 타임에 경기 안 하는 선수)
+    for t, slot in time_slots_dict.items():
+        playing = set()
+        for court in slot['courts']:
+            playing.update(court['team1'])
+            playing.update(court['team2'])
+        slot['bench'] = [
+            p.name for p in system.players
+            if p.matches_played > 0 and p.name not in playing
+        ]
+
+    return {'time_slots': list(time_slots_dict.values())}
+
+
+def _schedule_data_to_df(schedule_data):
+    """컴포넌트에서 반환된 schedule_data를 DataFrame으로 변환"""
+    rows = []
+    for slot in schedule_data['time_slots']:
+        for court in slot['courts']:
+            t1 = court['team1']
+            t2 = court['team2']
+            rows.append({
+                '타임': slot['time'],
+                '코트': court['court'],
+                '경기타입': court['type'],
+                '팀1_선수1': t1[0] if len(t1) > 0 else '',
+                '팀1_선수2': t1[1] if len(t1) > 1 else '',
+                '팀2_선수1': t2[0] if len(t2) > 0 else '',
+                '팀2_선수2': t2[1] if len(t2) > 1 else '',
+            })
+    return pd.DataFrame(rows)
+
+
 def regenerate_excel_from_df(schedule_df):
     """수정된 스케줄 DataFrame으로 Excel 재생성, bytes 반환"""
     import io
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # 매칭결과 시트
         schedule_df.to_excel(writer, sheet_name='매칭결과', index=False)
 
-        # 타임표 시트
         time_slots = sorted(schedule_df['타임'].unique())
-        courts = sorted(schedule_df['코트'].unique())
+        courts     = sorted(schedule_df['코트'].unique())
         player_cols = ['팀1_선수1', '팀1_선수2', '팀2_선수1', '팀2_선수2']
         timetable_rows = []
         for t in time_slots:
@@ -268,56 +325,30 @@ def display_matching_result():
         else:
             st.warning("⚠️ PDF 생성 실패 (reportlab 라이브러리 필요)")
 
-    # ── 탭2: 테이블 편집 (AG Grid) ─────────────────────────
+    # ── 탭2: 드래그앤드롭 편집 ────────────────────────────
     with tab_table:
-        schedule_df = result.get('schedule_df')
-        player_names = result.get('player_names', [])
+        schedule_data  = result.get('schedule_data')
+        player_genders = result.get('player_genders', [])
 
-        if schedule_df is None:
+        if schedule_data is None:
             st.info("스케줄 데이터가 없습니다.")
-        elif not AGGRID_AVAILABLE:
-            st.warning("⚠️ streamlit-aggrid가 설치되지 않았습니다: `pip install streamlit-aggrid`")
-            st.dataframe(schedule_df, use_container_width=True)
         else:
-            st.caption("💡 행을 드래그해 순서를 바꾸거나, 선수 셀을 클릭해 이름을 변경할 수 있습니다.")
+            st.caption("💡 같은 타임 안에서 선수 카드를 드래그해 코트 또는 벤치 간 이동이 가능합니다.")
 
-            gb = GridOptionsBuilder.from_dataframe(schedule_df)
-
-            # 행 드래그 (첫 번째 열에 핸들)
-            gb.configure_column('타임',   width=75,  pinned='left',
-                                rowDrag=True, rowDragManaged=True)
-            gb.configure_column('코트',   width=75)
-            gb.configure_column('경기타입', width=90, editable=True,
-                                cellEditor='agSelectCellEditor',
-                                cellEditorParams={'values': ['남복', '여복', '혼복']})
-
-            # 선수 열 - 드롭다운으로 편집
-            for col in ['팀1_선수1', '팀1_선수2', '팀2_선수1', '팀2_선수2']:
-                gb.configure_column(col, editable=True, width=120,
-                                    cellEditor='agSelectCellEditor',
-                                    cellEditorParams={'values': player_names})
-
-            gb.configure_grid_options(
-                rowDragManaged=True,
-                animateRows=True,
-                suppressMoveWhenRowDragging=False,
+            # 컴포넌트 호출 → 변경 시 updated_data 반환
+            updated_data = _match_editor(
+                schedule_data=schedule_data,
+                player_genders=player_genders,
+                key='match_editor_component',
             )
-
-            grid_response = AgGrid(
-                schedule_df,
-                gridOptions=gb.build(),
-                update_mode=GridUpdateMode.MODEL_CHANGED,
-                fit_columns_on_grid_load=True,
-                height=min(80 + len(schedule_df) * 42, 600),
-                allow_unsafe_jscode=True,
-            )
-
-            edited_df = pd.DataFrame(grid_response['data'])
 
             if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary"):
+                # 컴포넌트가 아직 값을 반환하지 않았으면 원본 사용
+                data_to_save = updated_data if updated_data else schedule_data
+                edited_df = _schedule_data_to_df(data_to_save)
                 new_excel_bytes = regenerate_excel_from_df(edited_df)
                 st.session_state['edited_excel_bytes'] = new_excel_bytes
-                # 다운로드 버튼 key 교체로 즉시 반영
+                # 다운로드 버튼 key 갱신
                 prev = st.session_state.get('excel_dl_key', 'excel_dl_0')
                 n = int(prev.split('_')[-1]) + 1
                 st.session_state['excel_dl_key'] = f'excel_dl_{n}'

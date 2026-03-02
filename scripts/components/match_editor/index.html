@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://unpkg.com/streamlit-component-lib/dist/index.js" crossorigin></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    background: #f7f8fa;
+    padding: 8px;
+  }
+
+  .time-slot {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .time-header {
+    background: #4472C4;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 7px 14px;
+    letter-spacing: 0.5px;
+  }
+  .time-body {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    overflow-x: auto;
+  }
+
+  .lane {
+    flex: 1;
+    min-width: 120px;
+    max-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .lane-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 4px 6px;
+    border-radius: 5px;
+    margin-bottom: 2px;
+  }
+  .lane-header.court  { background: #D6E4F7; color: #1f4788; }
+  .lane-header.bench  { background: #f0f0f0; color: #555; }
+
+  .type-badge {
+    font-size: 10px;
+    text-align: center;
+    padding: 2px 0;
+    border-radius: 4px;
+    margin-bottom: 3px;
+    font-weight: 600;
+  }
+  .type-남복 { background: #DDEBF7; color: #1f4788; }
+  .type-여복 { background: #FCE4D6; color: #843c0c; }
+  .type-혼복 { background: #E2EFDA; color: #375623; }
+
+  .team-label {
+    font-size: 9px;
+    color: #888;
+    text-align: center;
+    padding: 1px 0;
+    margin-top: 3px;
+    border-top: 1px dashed #ddd;
+  }
+
+  .player-list {
+    min-height: 36px;
+    border: 1.5px dashed #ccc;
+    border-radius: 6px;
+    padding: 4px;
+    background: #fafafa;
+    transition: background 0.15s;
+  }
+  .player-list.drag-over {
+    background: #e8f0fe;
+    border-color: #4472C4;
+  }
+  .player-list.invalid {
+    border-color: #e05c5c;
+    background: #fff0f0;
+  }
+
+  .player-card {
+    background: #fff;
+    border: 1px solid #d0d7e3;
+    border-radius: 5px;
+    padding: 5px 8px;
+    margin-bottom: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: grab;
+    text-align: center;
+    user-select: none;
+    transition: box-shadow 0.12s, transform 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .player-card:hover { box-shadow: 0 2px 6px rgba(68,114,196,0.18); }
+  .player-card.sortable-chosen { opacity: 0.7; transform: scale(1.04); }
+  .player-card.sortable-ghost  { opacity: 0.25; }
+  .player-card.male   { border-left: 3px solid #4472C4; }
+  .player-card.female { border-left: 3px solid #E05F5F; }
+
+  .bench-list {
+    min-height: 20px;
+  }
+  .bench-list .player-card {
+    background: #f5f5f5;
+    border-color: #ccc;
+    font-weight: 400;
+    color: #555;
+  }
+
+  .error-msg {
+    font-size: 10px;
+    color: #c00;
+    text-align: center;
+    padding: 2px 0;
+    min-height: 14px;
+  }
+
+  /* 범례 */
+  .legend {
+    display: flex;
+    gap: 10px;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-top: 1px solid #eee;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<div class="legend">
+  <span style="font-weight:700; font-size:11px; color:#555;">범례:</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#DDEBF7;border:1px solid #4472C4"></span>남복</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#FCE4D6;border:1px solid #E05F5F"></span>여복</span>
+  <span class="legend-item"><span class="legend-dot" style="background:#E2EFDA;border:1px solid #375623"></span>혼복</span>
+  <span class="legend-item"><span style="border-left:3px solid #4472C4; padding-left:4px;">남자</span></span>
+  <span class="legend-item"><span style="border-left:3px solid #E05F5F; padding-left:4px;">여자</span></span>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let scheduleData   = null;  // { time_slots: [...] }
+let playerGenders  = {};    // { name: 'male'|'female' }
+let sortableInsts  = [];    // all SortableJS instances
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function genderClass(name) {
+  return playerGenders[name] === 'female' ? 'female' : 'male';
+}
+
+function courtListId(time, court, listIdx) {
+  return `t${time}_c${court}_l${listIdx}`;
+}
+function benchListId(time) {
+  return `t${time}_bench`;
+}
+
+// rebuilds the full scheduleData from the DOM
+function readCurrentState() {
+  const result = { time_slots: [] };
+
+  scheduleData.time_slots.forEach(slot => {
+    const t  = slot.time;
+    const newSlot = { time: t, courts: [], bench: [] };
+
+    // bench
+    const benchEl = document.getElementById(benchListId(t));
+    if (benchEl) {
+      benchEl.querySelectorAll('.player-card').forEach(card => {
+        newSlot.bench.push(card.dataset.name);
+      });
+    }
+
+    // courts
+    slot.courts.forEach(court => {
+      const c = court.court;
+      const l0 = document.getElementById(courtListId(t, c, 0));
+      const l1 = document.getElementById(courtListId(t, c, 1));
+      const t1 = l0 ? [...l0.querySelectorAll('.player-card')].map(x => x.dataset.name) : [];
+      const t2 = l1 ? [...l1.querySelectorAll('.player-card')].map(x => x.dataset.name) : [];
+      newSlot.courts.push({
+        court: c,
+        type:  court.type,
+        team1: t1,
+        team2: t2
+      });
+    });
+
+    result.time_slots.push(newSlot);
+  });
+
+  return result;
+}
+
+// validate court player counts, highlight invalid lists
+function validateAndHighlight() {
+  let ok = true;
+  scheduleData.time_slots.forEach(slot => {
+    slot.courts.forEach(court => {
+      const t = slot.time, c = court.court;
+      [0, 1].forEach(idx => {
+        const el  = document.getElementById(courtListId(t, c, idx));
+        const err = document.getElementById(`err_${courtListId(t, c, idx)}`);
+        if (!el) return;
+        const n = el.querySelectorAll('.player-card').length;
+        if (n !== 2) {
+          el.classList.add('invalid');
+          if (err) err.textContent = `2명 필요 (현재 ${n}명)`;
+          ok = false;
+        } else {
+          el.classList.remove('invalid');
+          if (err) err.textContent = '';
+        }
+      });
+    });
+  });
+  return ok;
+}
+
+// emit updated state to Streamlit
+function emit() {
+  const state = readCurrentState();
+  scheduleData = state;          // keep in sync
+  validateAndHighlight();
+  Streamlit.setComponentValue(state);
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const root = document.getElementById('root');
+  root.innerHTML = '';
+  sortableInsts.forEach(s => s.destroy());
+  sortableInsts = [];
+
+  scheduleData.time_slots.forEach(slot => {
+    const t    = slot.time;
+    const div  = document.createElement('div');
+    div.className = 'time-slot';
+
+    const header = document.createElement('div');
+    header.className = 'time-header';
+    header.textContent = `⏱ ${t}타임`;
+    div.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'time-body';
+
+    // ── Bench lane ──────────────────────────────────────────────────────────
+    const benchLane = makeBenchLane(t, slot.bench, slot.courts);
+    body.appendChild(benchLane);
+
+    // shared SortableJS group per time slot (allows cross-court drag)
+    const groupName = `time_${t}`;
+
+    // ── Court lanes ─────────────────────────────────────────────────────────
+    slot.courts.forEach(court => {
+      const c    = court.court;
+      const lane = document.createElement('div');
+      lane.className = 'lane';
+
+      const lh = document.createElement('div');
+      lh.className = 'lane-header court';
+      lh.textContent = `코트 ${c}`;
+      lane.appendChild(lh);
+
+      const badge = document.createElement('div');
+      badge.className = `type-badge type-${court.type}`;
+      badge.textContent = court.type;
+      lane.appendChild(badge);
+
+      // Team1 list
+      const t1Label = document.createElement('div');
+      t1Label.className = 'team-label';
+      t1Label.textContent = '팀 1';
+      lane.appendChild(t1Label);
+
+      const list1 = makePlayerList(courtListId(t, c, 0), court.team1);
+      lane.appendChild(list1);
+      const err1 = document.createElement('div');
+      err1.className = 'error-msg';
+      err1.id = `err_${courtListId(t, c, 0)}`;
+      lane.appendChild(err1);
+
+      // Team2 list
+      const t2Label = document.createElement('div');
+      t2Label.className = 'team-label';
+      t2Label.textContent = '팀 2';
+      lane.appendChild(t2Label);
+
+      const list2 = makePlayerList(courtListId(t, c, 1), court.team2);
+      lane.appendChild(list2);
+      const err2 = document.createElement('div');
+      err2.className = 'error-msg';
+      err2.id = `err_${courtListId(t, c, 1)}`;
+      lane.appendChild(err2);
+
+      body.appendChild(lane);
+
+      // ── SortableJS for Team1 & Team2 lists ────────────────────────────────
+      [list1, list2].forEach(list => {
+        const s = Sortable.create(list, {
+          group: groupName,
+          animation: 150,
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen',
+          dragoverBubble: false,
+          onAdd:  emit,
+          onRemove: emit,
+          onUpdate: emit,
+        });
+        sortableInsts.push(s);
+      });
+    });
+
+    div.appendChild(body);
+    root.appendChild(div);
+
+    // ── SortableJS for bench ─────────────────────────────────────────────────
+    const benchListEl = document.getElementById(benchListId(t));
+    if (benchListEl) {
+      const s = Sortable.create(benchListEl, {
+        group: groupName,
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onAdd:  emit,
+        onRemove: emit,
+        onUpdate: emit,
+      });
+      sortableInsts.push(s);
+    }
+  });
+
+  validateAndHighlight();
+}
+
+function makeBenchLane(time, benchPlayers, courts) {
+  const lane = document.createElement('div');
+  lane.className = 'lane';
+  lane.style.minWidth = '100px';
+  lane.style.maxWidth = '130px';
+
+  const lh = document.createElement('div');
+  lh.className = 'lane-header bench';
+  lh.textContent = '벤치';
+  lane.appendChild(lh);
+
+  const list = makePlayerList(benchListId(time), benchPlayers, true);
+  lane.appendChild(list);
+  return lane;
+}
+
+function makePlayerList(id, players, isBench = false) {
+  const ul = document.createElement('div');
+  ul.className = isBench ? 'player-list bench-list' : 'player-list';
+  ul.id = id;
+
+  players.forEach(name => {
+    ul.appendChild(makeCard(name));
+  });
+  return ul;
+}
+
+function makeCard(name) {
+  const card = document.createElement('div');
+  card.className = `player-card ${genderClass(name)}`;
+  card.dataset.name = name;
+  card.textContent  = name;
+  card.title = name;
+  return card;
+}
+
+// ─── Streamlit Integration ────────────────────────────────────────────────────
+function onRender(event) {
+  const data = event.detail;
+  if (!data || !data.args) return;
+
+  const args = data.args;
+
+  // build gender map
+  playerGenders = {};
+  (args.player_genders || []).forEach(pg => {
+    playerGenders[pg.name] = pg.gender;
+  });
+
+  // only re-render if schedule changed (not on pure height update)
+  const newJson = JSON.stringify(args.schedule_data);
+  if (newJson !== window._lastJson) {
+    window._lastJson = newJson;
+    scheduleData = args.schedule_data;
+    render();
+  }
+
+  // set component height to match content
+  Streamlit.setFrameHeight(document.body.scrollHeight + 20);
+}
+
+window.addEventListener('streamlit:render', onRender);
+Streamlit.setComponentReady();
+Streamlit.setFrameHeight(400);
+</script>
+</body>
+</html>
