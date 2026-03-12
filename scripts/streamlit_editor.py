@@ -221,6 +221,21 @@ def _build_schedule_data(system):
     return {'time_slots': list(time_slots_dict.values())}
 
 
+def _infer_match_type(team1, team2, gender_map):
+    """4명 선수의 성별로 경기 타입 자동 결정.
+    전원 male -> '남복', 전원 female -> '여복', 혼성 -> '혼복'
+    성별 미확인 선수는 male로 간주
+    """
+    players = list(team1) + list(team2)
+    genders = {gender_map.get(p, 'male') for p in players if p}
+    if genders == {'female'}:
+        return '여복'
+    elif 'female' not in genders:
+        return '남복'
+    else:
+        return '혼복'
+
+
 def _schedule_data_to_df(schedule_data):
     """컴포넌트에서 반환된 schedule_data를 DataFrame으로 변환"""
     rows = []
@@ -541,31 +556,6 @@ def display_matching_result():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # ── 경기 타입 변경 섹션 ──────────────────────────
-            with st.expander("🔄 경기 타입 변경", expanded=False):
-                st.caption("각 코트의 경기 타입(남복/여복/혼복)을 변경합니다. 변경 즉시 반영됩니다.")
-                TYPE_OPTIONS = ['남복', '여복', '혼복']
-                type_changed = False
-                for si, slot in enumerate(edit_sd['time_slots']):
-                    t = slot['time']
-                    if not slot['courts']:
-                        continue
-                    cols = st.columns([1] + [2] * len(slot['courts']))
-                    cols[0].markdown(f"**{t}타임**")
-                    for ci, court in enumerate(slot['courts']):
-                        new_type = cols[ci + 1].selectbox(
-                            f"코트{court['court']}",
-                            TYPE_OPTIONS,
-                            index=TYPE_OPTIONS.index(court['type']) if court['type'] in TYPE_OPTIONS else 0,
-                            key=f'ctype_{si}_{ci}',
-                            label_visibility='visible'
-                        )
-                        if new_type != court['type']:
-                            st.session_state['edit_schedule']['time_slots'][si]['courts'][ci]['type'] = new_type
-                            type_changed = True
-                if type_changed:
-                    st.rerun()
-
             # ── 타임 / 코트 교환 섹션 ───────────────────────
             with st.expander("↕️ 타임 / 코트 교환", expanded=False):
                 import copy as _copy
@@ -680,6 +670,11 @@ def display_matching_result():
 
             st.markdown("<hr style='margin:8px 0'>", unsafe_allow_html=True)
             if st.button("💾 변경사항 적용 (Excel + PDF 재생성)", type="primary", key='apply_edit'):
+                # 성별 기반 경기 타입 자동 할당
+                for slot in st.session_state['edit_schedule']['time_slots']:
+                    for court in slot['courts']:
+                        court['type'] = _infer_match_type(court['team1'], court['team2'], gender_map)
+
                 edited_df = _schedule_data_to_df(st.session_state['edit_schedule'])
 
                 # Excel 재생성
