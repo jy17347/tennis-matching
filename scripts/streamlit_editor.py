@@ -180,6 +180,9 @@ def run_matching_algorithm(iterations=1000):
             # 편집 상태 초기화 (새 매칭 생성 시 이전 편집 내용 제거)
             st.session_state.pop('edit_schedule', None)
             st.session_state.pop('edited_excel_bytes', None)
+            st.session_state.pop('edited_pdf_bytes', None)
+            st.session_state.pop('edited_pdf_images', None)
+            st.session_state.pop('pdf_dl_key', None)
             return True
         else:
             st.error("❌ 매칭 생성 실패. 조건을 만족하는 스케줄을 찾을 수 없습니다.")
@@ -269,6 +272,134 @@ def regenerate_excel_from_df(schedule_df):
     return output.getvalue()
 
 
+def regenerate_pdf_from_schedule_data(schedule_data):
+    """편집된 schedule_data로 PDF bytes 생성 (reportlab 사용)"""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import io
+    except ImportError:
+        return None, "reportlab 설치 필요 (pip install reportlab)"
+
+    # 한글 폰트 등록
+    font_registered = False
+    for font_path in [
+        'C:/Windows/Fonts/malgun.ttf', 'C:/Windows/Fonts/NanumGothic.ttf',
+        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
+        './fonts/NanumGothic.ttf', '../fonts/NanumGothic.ttf',
+    ]:
+        if os.path.exists(font_path):
+            try:
+                pdfmetrics.registerFont(TTFont('KoreanEdit', font_path))
+                font_registered = True
+                break
+            except Exception:
+                continue
+    korean_font = 'KoreanEdit' if font_registered else 'Helvetica'
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                            rightMargin=1*cm, leftMargin=1*cm,
+                            topMargin=1*cm, bottomMargin=1*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('T', parent=styles['Title'],
+                                 fontName=korean_font, fontSize=20, alignment=1)
+    normal_style = ParagraphStyle('N', parent=styles['Normal'],
+                                  fontName=korean_font, fontSize=10)
+
+    elements = []
+    elements.append(Paragraph("테니스 타임표 (편집본)", title_style))
+    elements.append(Spacer(1, 0.4*cm))
+    elements.append(Paragraph(f"생성일: {datetime.now().strftime('%Y년 %m월 %d일')}", normal_style))
+    elements.append(Spacer(1, 0.4*cm))
+
+    slots = schedule_data['time_slots']
+    courts_all = sorted({c['court'] for s in slots for c in s['courts']})
+    num_courts = len(courts_all)
+
+    # 컬럼 너비 계산 (landscape A4 ≒ 25.7 cm 사용 가능)
+    available = 25.7
+    time_w  = 1.5
+    bench_w = 5.0
+    court_w = round((available - time_w - bench_w) / max(num_courts, 1), 2)
+    col_widths = [time_w*cm] + [court_w*cm]*num_courts + [bench_w*cm]
+
+    header = ['타임'] + [f'코트 {c}' for c in courts_all] + ['벤치']
+    table_data = [header]
+
+    for slot in slots:
+        t = slot['time']
+        court_map = {c['court']: c for c in slot['courts']}
+        row = [str(t)]
+        for cn in courts_all:
+            court = court_map.get(cn)
+            if not court:
+                row.append('-')
+            else:
+                p1 = f"{court['team1'][0]} & {court['team1'][1]}" if len(court['team1']) >= 2 else ' & '.join(court['team1'])
+                p2 = f"{court['team2'][0]} & {court['team2'][1]}" if len(court['team2']) >= 2 else ' & '.join(court['team2'])
+                row.append(f"[{court['type']}]\n{p1}\nvs\n{p2}")
+        bench = slot.get('bench', [])
+        if bench:
+            bench_lines = [', '.join(bench[i:i+3]) for i in range(0, len(bench), 3)]
+            row.append('\n'.join(bench_lines))
+        else:
+            row.append('-')
+        table_data.append(row)
+
+    table = Table(table_data, colWidths=col_widths)
+    bench_col = num_courts + 1
+    ts = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+        ('TEXTCOLOR',  (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME',   (0, 0), (-1, -1), korean_font),
+        ('FONTSIZE',   (0, 0), (-1, 0), 12),
+        ('FONTSIZE',   (0, 1), (-1, -1), 9),
+        ('ALIGN',      (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID',       (0, 0), (-1, -1), 1, colors.black),
+        ('TOPPADDING',    (0, 1), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+        ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#D6DCE5')),
+        ('BACKGROUND', (bench_col, 1), (bench_col, -1), colors.HexColor('#FFF2CC')),
+    ])
+    TYPE_COLOR = {'남복': '#DDEBF7', '여복': '#FCE4D6', '혼복': '#E2EFDA'}
+    for ri, slot in enumerate(slots, start=1):
+        court_map = {c['court']: c for c in slot['courts']}
+        for ci, cn in enumerate(courts_all, start=1):
+            court = court_map.get(cn)
+            if court and court['type'] in TYPE_COLOR:
+                ts.add('BACKGROUND', (ci, ri), (ci, ri), colors.HexColor(TYPE_COLOR[court['type']]))
+    table.setStyle(ts)
+    elements.append(table)
+
+    elements.append(Spacer(1, 0.5*cm))
+    legend = Table([['경기:', '남복', '여복', '혼복']],
+                   colWidths=[2*cm, 4*cm, 4*cm, 4*cm])
+    legend.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), korean_font),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#DDEBF7')),
+        ('BACKGROUND', (2, 0), (2, 0), colors.HexColor('#FCE4D6')),
+        ('BACKGROUND', (3, 0), (3, 0), colors.HexColor('#E2EFDA')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    elements.append(legend)
+
+    try:
+        doc.build(elements)
+        return buf.getvalue(), None
+    except Exception as e:
+        return None, str(e)
+
+
 def display_matching_result():
     """session_state에 저장된 매칭 결과를 렌더링"""
     result = st.session_state.get('matching_result')
@@ -281,13 +412,17 @@ def display_matching_result():
     # 다운로드 버튼 (항상 상단 고정)
     col_pdf, col_excel = st.columns(2)
     with col_pdf:
-        if result['pdf_bytes']:
+        # 편집된 PDF 우선, 없으면 원본 사용
+        pdf_dl_bytes = st.session_state.get('edited_pdf_bytes') or result['pdf_bytes']
+        pdf_dl_label = "📥 PDF 다운로드 (편집본)" if st.session_state.get('edited_pdf_bytes') else "📥 PDF 다운로드"
+        if pdf_dl_bytes:
             st.download_button(
-                label="📥 PDF 다운로드",
-                data=result['pdf_bytes'],
+                label=pdf_dl_label,
+                data=pdf_dl_bytes,
                 file_name=f'테니스_매칭결과_{timestamp}.pdf',
                 mime='application/pdf',
-                use_container_width=True
+                use_container_width=True,
+                key=st.session_state.get('pdf_dl_key', 'pdf_dl_0')
             )
     with col_excel:
         dl_key = st.session_state.get('excel_dl_key', 'excel_dl_0')
@@ -309,7 +444,22 @@ def display_matching_result():
 
     # ── 탭1: PDF 미리보기 ──────────────────────────────────
     with tab_pdf:
-        if result['pdf_generated']:
+        # 편집된 PDF/이미지 우선 사용
+        edited_pdf_images = st.session_state.get('edited_pdf_images')
+        edited_pdf_bytes  = st.session_state.get('edited_pdf_bytes')
+
+        if edited_pdf_images:
+            st.info("📝 편집된 스케줄 기준 PDF입니다.")
+            for i, img_bytes in enumerate(edited_pdf_images):
+                st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
+                if i < len(edited_pdf_images) - 1:
+                    st.markdown("---")
+        elif edited_pdf_bytes:
+            st.info("📝 편집된 스케줄 기준 PDF입니다.")
+            b64 = base64.b64encode(edited_pdf_bytes).decode('utf-8')
+            st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="800" type="application/pdf"></iframe>',
+                        unsafe_allow_html=True)
+        elif result['pdf_generated']:
             if result['pdf_images']:
                 for i, img_bytes in enumerate(result['pdf_images']):
                     st.image(img_bytes, caption=f'페이지 {i+1}', use_container_width=True)
@@ -444,14 +594,45 @@ def display_matching_result():
                     st.session_state['edit_schedule']['time_slots'] = updated_slots
 
             st.markdown("<hr style='margin:8px 0'>", unsafe_allow_html=True)
-            if st.button("💾 변경사항 적용 (Excel 재생성)", type="primary", key='apply_edit'):
+            if st.button("💾 변경사항 적용 (Excel + PDF 재생성)", type="primary", key='apply_edit'):
                 edited_df = _schedule_data_to_df(st.session_state['edit_schedule'])
+
+                # Excel 재생성
                 new_excel_bytes = regenerate_excel_from_df(edited_df)
                 st.session_state['edited_excel_bytes'] = new_excel_bytes
                 prev = st.session_state.get('excel_dl_key', 'excel_dl_0')
-                n_key = int(prev.split('_')[-1]) + 1
-                st.session_state['excel_dl_key'] = f'excel_dl_{n_key}'
-                st.success("✅ Excel이 재생성되었습니다. 상단 'Excel 다운로드' 버튼으로 받으세요.")
+                st.session_state['excel_dl_key'] = f'excel_dl_{int(prev.split("_")[-1]) + 1}'
+
+                # PDF 재생성
+                with st.spinner('PDF를 재생성하는 중...'):
+                    new_pdf_bytes, pdf_err = regenerate_pdf_from_schedule_data(st.session_state['edit_schedule'])
+                if new_pdf_bytes:
+                    st.session_state['edited_pdf_bytes'] = new_pdf_bytes
+                    # PDF → 이미지 변환 (pdf2image 있으면)
+                    st.session_state['edited_pdf_images'] = None
+                    if PDF_TO_IMAGE_AVAILABLE:
+                        try:
+                            import io, tempfile
+                            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+                                tmp.write(new_pdf_bytes)
+                                tmp_path = tmp.name
+                            images = convert_from_path(tmp_path, dpi=200)
+                            imgs_bytes = []
+                            for img in images:
+                                buf = io.BytesIO()
+                                img.save(buf, format='PNG')
+                                imgs_bytes.append(buf.getvalue())
+                            st.session_state['edited_pdf_images'] = imgs_bytes
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+                    # PDF 다운로드 키 갱신
+                    prev_p = st.session_state.get('pdf_dl_key', 'pdf_dl_0')
+                    st.session_state['pdf_dl_key'] = f'pdf_dl_{int(prev_p.split("_")[-1]) + 1}'
+                    st.success("✅ Excel 및 PDF가 재생성되었습니다. 상단 버튼으로 다운로드하세요.")
+                else:
+                    st.warning(f"⚠️ PDF 재생성 실패: {pdf_err}. Excel만 재생성되었습니다.")
+                    st.success("✅ Excel이 재생성되었습니다.")
                 st.rerun()
 
     # ── 탭3: 통계 ─────────────────────────────────────────
