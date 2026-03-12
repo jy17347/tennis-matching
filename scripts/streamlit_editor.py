@@ -182,6 +182,7 @@ def run_matching_algorithm(iterations=1000):
             st.session_state.pop('edited_excel_bytes', None)
             st.session_state.pop('edited_pdf_bytes', None)
             st.session_state.pop('edited_pdf_images', None)
+            st.session_state.pop('edited_stats', None)
             st.session_state.pop('pdf_dl_key', None)
             return True
         else:
@@ -219,6 +220,43 @@ def _build_schedule_data(system):
         ]
 
     return {'time_slots': list(time_slots_dict.values())}
+
+
+def _recalculate_stats(schedule_data, player_genders):
+    """편집된 schedule_data로 match_types, stats_df 재계산"""
+    match_types = {'남복': 0, '여복': 0, '혼복': 0}
+    # 선수별 집계
+    player_counts = {}  # name -> {'total': 0, '혼복': 0, '단일': 0}
+    for pg in player_genders:
+        player_counts[pg['name']] = {'total': 0, '혼복': 0, '단일': 0}
+
+    for slot in schedule_data['time_slots']:
+        for court in slot['courts']:
+            ctype = court['type']
+            if ctype in match_types:
+                match_types[ctype] += 1
+            for name in list(court['team1']) + list(court['team2']):
+                if name not in player_counts:
+                    player_counts[name] = {'total': 0, '혼복': 0, '단일': 0}
+                player_counts[name]['total'] += 1
+                if ctype == '혼복':
+                    player_counts[name]['혼복'] += 1
+                else:
+                    player_counts[name]['단일'] += 1
+
+    gender_map = {pg['name']: pg['gender'] for pg in player_genders}
+    rows = []
+    for name, cnt in player_counts.items():
+        g = gender_map.get(name, 'male')
+        rows.append({
+            '이름': name,
+            '성별': '여' if g == 'female' else '남',
+            '총 경기': cnt['total'],
+            '혼복': cnt['혼복'],
+            '단일복식': cnt['단일'],
+        })
+    stats_df = pd.DataFrame(rows).sort_values('총 경기', ascending=False)
+    return match_types, stats_df
 
 
 def _infer_match_type(team1, team2, gender_map):
@@ -713,19 +751,38 @@ def display_matching_result():
                 else:
                     st.warning(f"⚠️ PDF 재생성 실패: {pdf_err}. Excel만 재생성되었습니다.")
                     st.success("✅ Excel이 재생성되었습니다.")
+
+                # 통계 재계산
+                new_match_types, new_stats_df = _recalculate_stats(
+                    st.session_state['edit_schedule'], result.get('player_genders', [])
+                )
+                st.session_state['edited_stats'] = {
+                    'match_types': new_match_types,
+                    'stats_df': new_stats_df,
+                }
                 st.rerun()
 
     # ── 탭3: 통계 ─────────────────────────────────────────
     with tab_stats:
+        # 편집본 통계 우선, 없으면 원본
+        edited_stats = st.session_state.get('edited_stats')
+        if edited_stats:
+            st.info("📝 편집된 스케줄 기준 통계입니다.")
+            disp_match_types = edited_stats['match_types']
+            disp_stats_df    = edited_stats['stats_df']
+        else:
+            disp_match_types = result['match_types']
+            disp_stats_df    = result['stats_df']
+
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("남복 경기", result['match_types']['남복'])
+            st.metric("남복 경기", disp_match_types['남복'])
         with col2:
-            st.metric("여복 경기", result['match_types']['여복'])
+            st.metric("여복 경기", disp_match_types['여복'])
         with col3:
-            st.metric("혼복 경기", result['match_types']['혼복'])
+            st.metric("혼복 경기", disp_match_types['혼복'])
         st.subheader("선수별 참여 횟수")
-        st.dataframe(result['stats_df'], use_container_width=True)
+        st.dataframe(disp_stats_df, use_container_width=True)
 
 
 def main():
