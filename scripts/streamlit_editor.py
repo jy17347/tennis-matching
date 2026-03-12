@@ -539,8 +539,93 @@ def display_matching_result():
             html += "</tbody></table>"
             st.markdown(html, unsafe_allow_html=True)
 
-            # ── 드래그앤드롭 편집 섹션 ───────────────────────
             st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── 경기 타입 변경 섹션 ──────────────────────────
+            with st.expander("🔄 경기 타입 변경", expanded=False):
+                st.caption("각 코트의 경기 타입(남복/여복/혼복)을 변경합니다. 변경 즉시 반영됩니다.")
+                TYPE_OPTIONS = ['남복', '여복', '혼복']
+                type_changed = False
+                for si, slot in enumerate(edit_sd['time_slots']):
+                    t = slot['time']
+                    if not slot['courts']:
+                        continue
+                    cols = st.columns([1] + [2] * len(slot['courts']))
+                    cols[0].markdown(f"**{t}타임**")
+                    for ci, court in enumerate(slot['courts']):
+                        new_type = cols[ci + 1].selectbox(
+                            f"코트{court['court']}",
+                            TYPE_OPTIONS,
+                            index=TYPE_OPTIONS.index(court['type']) if court['type'] in TYPE_OPTIONS else 0,
+                            key=f'ctype_{si}_{ci}',
+                            label_visibility='visible'
+                        )
+                        if new_type != court['type']:
+                            st.session_state['edit_schedule']['time_slots'][si]['courts'][ci]['type'] = new_type
+                            type_changed = True
+                if type_changed:
+                    st.rerun()
+
+            # ── 타임 / 코트 교환 섹션 ───────────────────────
+            with st.expander("↕️ 타임 / 코트 교환", expanded=False):
+                import copy as _copy
+
+                time_labels = [str(s['time']) + '타임' for s in edit_sd['time_slots']]
+                court_labels = [f'코트 {cn}' for cn in courts_all]
+
+                st.markdown("**타임 교환** — 두 타임 전체(선수+벤치+타입)를 서로 바꿉니다.")
+                tc1, tc2, tc3 = st.columns([2, 2, 1])
+                ta = tc1.selectbox("타임 A", time_labels, key='swap_time_a')
+                tb = tc2.selectbox("타임 B", time_labels, index=min(1, len(time_labels)-1), key='swap_time_b')
+                if tc3.button("교환", key='do_swap_time'):
+                    if ta != tb:
+                        idx_a = time_labels.index(ta)
+                        idx_b = time_labels.index(tb)
+                        slots = st.session_state['edit_schedule']['time_slots']
+                        # 선수/벤치/코트 데이터만 교환 (time 번호는 유지)
+                        data_a = _copy.deepcopy({'courts': slots[idx_a]['courts'], 'bench': slots[idx_a]['bench']})
+                        data_b = _copy.deepcopy({'courts': slots[idx_b]['courts'], 'bench': slots[idx_b]['bench']})
+                        slots[idx_a]['courts'] = data_b['courts']
+                        slots[idx_a]['bench']  = data_b['bench']
+                        slots[idx_b]['courts'] = data_a['courts']
+                        slots[idx_b]['bench']  = data_a['bench']
+                        st.success(f"✅ {ta} ↔ {tb} 교환 완료")
+                        st.rerun()
+                    else:
+                        st.warning("다른 타임을 선택하세요.")
+
+                st.markdown("---")
+                st.markdown("**코트 교환** — 두 코트 열 전체(모든 타임)를 서로 바꿉니다.")
+                cc1, cc2, cc3 = st.columns([2, 2, 1])
+                ca = cc1.selectbox("코트 A", court_labels, key='swap_court_a')
+                cb = cc2.selectbox("코트 B", court_labels, index=min(1, len(court_labels)-1), key='swap_court_b')
+                if cc3.button("교환", key='do_swap_court'):
+                    cn_a = courts_all[court_labels.index(ca)]
+                    cn_b = courts_all[court_labels.index(cb)]
+                    if cn_a != cn_b:
+                        slots = st.session_state['edit_schedule']['time_slots']
+                        for slot in slots:
+                            court_map_s = {c['court']: c for c in slot['courts']}
+                            if cn_a in court_map_s and cn_b in court_map_s:
+                                # 팀/벤치 데이터 교환, court 번호는 유지
+                                ca_data = _copy.deepcopy({'team1': court_map_s[cn_a]['team1'],
+                                                          'team2': court_map_s[cn_a]['team2'],
+                                                          'type':  court_map_s[cn_a]['type']})
+                                cb_data = _copy.deepcopy({'team1': court_map_s[cn_b]['team1'],
+                                                          'team2': court_map_s[cn_b]['team2'],
+                                                          'type':  court_map_s[cn_b]['type']})
+                                court_map_s[cn_a]['team1'] = cb_data['team1']
+                                court_map_s[cn_a]['team2'] = cb_data['team2']
+                                court_map_s[cn_a]['type']  = cb_data['type']
+                                court_map_s[cn_b]['team1'] = ca_data['team1']
+                                court_map_s[cn_b]['team2'] = ca_data['team2']
+                                court_map_s[cn_b]['type']  = ca_data['type']
+                        st.success(f"✅ {ca} ↔ {cb} 교환 완료")
+                        st.rerun()
+                    else:
+                        st.warning("다른 코트를 선택하세요.")
+
+            # ── 드래그앤드롭 편집 섹션 ───────────────────────
             with st.expander("✏️ 선수 배치 편집 (드래그앤드롭)", expanded=False):
                 if not SORTABLES_AVAILABLE:
                     st.warning("`pip install streamlit-sortables` 설치 필요")
