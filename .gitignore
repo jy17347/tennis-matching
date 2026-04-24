@@ -32,4 +32,3 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 *custom.xlsx
-*.xlsx
