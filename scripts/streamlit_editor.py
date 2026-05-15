@@ -65,11 +65,11 @@ def save_participation_data(df):
         return False
 
 
-def run_matching_algorithm(iterations=1000):
+def run_matching_algorithm(iterations=1000, time_slots=7):
     """매칭 알고리즘 실행 - 결과를 session_state에 저장"""
     try:
         # 매칭 시스템 초기화
-        system = TennisMatchingSystem(ROSTER_FILE, PARTICIPATION_FILE)
+        system = TennisMatchingSystem(ROSTER_FILE, PARTICIPATION_FILE, time_slots=time_slots)
         
         # 유효성 검증
         try:
@@ -1005,10 +1005,19 @@ def main():
                             step=100,
                             help="더 많은 반복으로 더 좋은 결과를 얻을 수 있습니다."
                         )
+                    with col2:
+                        time_slots = st.number_input(
+                            "타임 수",
+                            min_value=3,
+                            max_value=10,
+                            value=7,
+                            step=1,
+                            help="전체 타임 수를 설정합니다."
+                        )
                     
                     # 매칭 실행 버튼
                     if st.button("🎾 매칭 생성 시작", type="primary"):
-                        run_matching_algorithm(iterations=iterations)
+                        run_matching_algorithm(iterations=iterations, time_slots=time_slots)
                 
             except Exception as e:
                 st.error(f"데이터 확인 중 오류: {e}")

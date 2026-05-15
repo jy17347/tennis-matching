@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 테니스 토너먼트 매칭 시스템 v2
-- 3코트 × 5타임 = 15경기
+- 3코트 × 7타임 = 21경기
 - 남복, 여복, 혼복 경기
 - 제약조건 기반 최적화
 - 모든 남자 혼복 참여 보장
@@ -182,14 +182,14 @@ class Match:
 class TennisMatchingSystem:
     """테니스 매칭 시스템"""
     
-    def __init__(self, roster_path, participation_path):
+    def __init__(self, roster_path, participation_path, time_slots=7):
         self.roster_path = roster_path
         self.participation_path = participation_path
         self.players = []
         self.male_players = []
         self.female_players = []
         self.schedule = []  # 전체 경기 스케줄
-        self.time_slots = 5
+        self.time_slots = time_slots
         self.courts = 3
         self.total_matches = self.time_slots * self.courts
         
