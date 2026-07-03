@@ -1010,7 +1010,7 @@ def main():
                             "타임 수",
                             min_value=3,
                             max_value=10,
-                            value=7,
+                            value=5,
                             step=1,
                             help="전체 타임 수를 설정합니다."
                         )
