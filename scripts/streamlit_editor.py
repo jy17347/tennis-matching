@@ -38,6 +38,7 @@ st.set_page_config(
 # 파일 경로 설정
 DATASET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dataset')
 PARTICIPATION_FILE = os.path.join(DATASET_DIR, 'participation_sample.xlsx')
+GUEST_FILE = os.path.join(DATASET_DIR, 'guest_sample.xlsx')
 ROSTER_FILE = os.path.join(DATASET_DIR, 'roster.xlsx')
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'results')
 
@@ -65,11 +66,52 @@ def save_participation_data(df):
         return False
 
 
+def load_guest_data():
+    """게스트 데이터 로드"""
+    columns = ['이름', '성별', '수준']
+    if not os.path.exists(GUEST_FILE):
+        return pd.DataFrame(columns=columns)
+    try:
+        df = pd.read_excel(GUEST_FILE, engine='openpyxl')
+        for col in columns:
+            if col not in df.columns:
+                df[col] = ''
+        return df[columns]
+    except Exception as e:
+        st.error(f"게스트 파일 로드 실패: {e}")
+        return pd.DataFrame(columns=columns)
+
+
+def save_guest_data(df):
+    """게스트 데이터 저장"""
+    try:
+        save_df = df.copy()
+        for col in ['이름', '성별', '수준']:
+            if col not in save_df.columns:
+                save_df[col] = ''
+        save_df = save_df[['이름', '성별', '수준']]
+        save_df = save_df[save_df['이름'].astype(str).str.strip() != '']
+        save_df.to_excel(GUEST_FILE, index=False, engine='openpyxl')
+        return True
+    except Exception as e:
+        st.error(f"게스트 파일 저장 실패: {e}")
+        return False
+
+
+def _normalize_guest_gender(value):
+    text = str(value).strip()
+    if text in {'1', '남', 'male', 'm', '남자'}:
+        return 1
+    if text in {'2', '여', 'female', 'f', '여자'}:
+        return 2
+    return 1
+
+
 def run_matching_algorithm(iterations=1000, time_slots=7):
     """매칭 알고리즘 실행 - 결과를 session_state에 저장"""
     try:
         # 매칭 시스템 초기화
-        system = TennisMatchingSystem(ROSTER_FILE, PARTICIPATION_FILE, time_slots=time_slots)
+        system = TennisMatchingSystem(ROSTER_FILE, PARTICIPATION_FILE, time_slots=time_slots, guest_path=GUEST_FILE)
         
         # 유효성 검증
         try:
@@ -921,6 +963,43 @@ def main():
                         st.rerun()
                     else:
                         st.error("❌ 초기화 실패")
+
+            # 게스트 명단
+            st.markdown("---")
+            st.subheader("게스트 명단")
+            st.markdown("※ 게스트는 매칭 생성 시 자동으로 포함됩니다.")
+
+            if 'guest_df' not in st.session_state:
+                st.session_state.guest_df = load_guest_data()
+
+            guest_display_df = st.session_state.guest_df.copy()
+            guest_edited_df = st.data_editor(
+                guest_display_df,
+                use_container_width=True,
+                num_rows="dynamic",
+                height=260,
+                column_config={
+                    '이름': st.column_config.TextColumn('이름'),
+                    '성별': st.column_config.SelectboxColumn('성별', options=['남', '여']),
+                    '수준': st.column_config.NumberColumn('수준', min_value=1, max_value=10, step=0.5),
+                },
+                key='guest_editor'
+            )
+
+            colg1, colg2 = st.columns([1, 5])
+            with colg1:
+                if st.button("💾 게스트 저장", type="primary"):
+                    save_df = guest_edited_df.copy()
+                    if '성별' in save_df.columns:
+                        save_df['성별'] = save_df['성별'].fillna('남')
+                    if '수준' in save_df.columns:
+                        save_df['수준'] = pd.to_numeric(save_df['수준'], errors='coerce').fillna(3)
+                    if save_guest_data(save_df):
+                        st.session_state.guest_df = save_df[['이름', '성별', '수준']].copy()
+                        st.success("✅ 게스트 저장 완료!")
+                        st.rerun()
+                    else:
+                        st.error("❌ 게스트 저장 실패")
             
             # 참가자 요약
             st.markdown("---")
@@ -972,25 +1051,34 @@ def main():
             participants = df[df['참여 (1)'].isin(['O', '1', 1])]            
             try:
                 roster_df = pd.read_excel(ROSTER_FILE, engine='openpyxl')
+                guest_df = load_guest_data()
                 merged = participants.merge(roster_df[['성명', '성별']], on='성명', how='left')
                 male_count = len(merged[merged['성별'] == 1])
                 female_count = len(merged[merged['성별'] == 2])
+                guest_male_count = len(guest_df[guest_df['성별'].astype(str).isin(['남', '1'])]) if len(guest_df) > 0 else 0
+                guest_female_count = len(guest_df[guest_df['성별'].astype(str).isin(['여', '2'])]) if len(guest_df) > 0 else 0
+                guest_total = len(guest_df)
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("남자", male_count)
                 with col2:
                     st.metric("여자", female_count)
                 with col3:
                     st.metric("총 참가자", len(participants))
+                with col4:
+                    st.metric("게스트", guest_total)
                 
                 # 매칭 조건 체크
                 # if male_count < 4:
                 #     st.error("⚠️ 남자 참가자가 최소 4명 이상이어야 합니다.")
-                if len(participants) < 4:
-                    st.error("⚠️ 총 참가자가 최소 4명 이상이어야 합니다.")
+                total_players = len(participants) + guest_total
+                if total_players < 4:
+                    st.error("⚠️ 참가자+게스트 총 인원이 최소 4명 이상이어야 합니다.")
                 else:
                     st.success("✅ 매칭 생성 가능")
+                    if guest_total > 0:
+                        st.info(f"게스트 포함: 남자 {guest_male_count}명, 여자 {guest_female_count}명")
                     
                     # 매칭 옵션
                     st.markdown("### 매칭 옵션")
@@ -1010,7 +1098,7 @@ def main():
                             "타임 수",
                             min_value=3,
                             max_value=10,
-                            value=5,
+                            value=7,
                             step=1,
                             help="전체 타임 수를 설정합니다."
                         )

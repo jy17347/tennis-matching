@@ -182,9 +182,10 @@ class Match:
 class TennisMatchingSystem:
     """테니스 매칭 시스템"""
     
-    def __init__(self, roster_path, participation_path, time_slots=7):
+    def __init__(self, roster_path, participation_path, time_slots=7, guest_path=None):
         self.roster_path = roster_path
         self.participation_path = participation_path
+        self.guest_path = guest_path
         self.players = []
         self.male_players = []
         self.female_players = []
@@ -216,6 +217,40 @@ class TennisMatchingSystem:
                     self.male_players.append(player)
                 else:
                     self.female_players.append(player)
+
+        # 게스트 추가 로드 (선택)
+        if self.guest_path and os.path.exists(self.guest_path):
+            try:
+                guest_df = pd.read_excel(self.guest_path, engine='openpyxl')
+                existing_names = {p.name for p in self.players}
+
+                def _parse_gender(value):
+                    text = str(value).strip()
+                    if text in {'1', '남', 'male', 'm', '남자'}:
+                        return 1
+                    if text in {'2', '여', 'female', 'f', '여자'}:
+                        return 2
+                    return 1
+
+                for _, row in guest_df.iterrows():
+                    name = str(row.get('이름', '')).strip()
+                    if not name or name == 'nan' or name in existing_names:
+                        continue
+                    gender = _parse_gender(row.get('성별', 1))
+                    skill_raw = row.get('수준', row.get('실력', 3))
+                    try:
+                        skill = float(skill_raw)
+                    except Exception:
+                        skill = 3
+                    player = Player(name=name, gender=gender, skill=skill, number='')
+                    self.players.append(player)
+                    existing_names.add(name)
+                    if player.gender == 1:
+                        self.male_players.append(player)
+                    else:
+                        self.female_players.append(player)
+            except Exception as e:
+                print(f"⚠️ 게스트 로드 실패: {e}")
         
         print(f"총 참가자: {len(self.players)}명 (남: {len(self.male_players)}, 여: {len(self.female_players)})")
         

@@ -128,22 +128,22 @@ class CustomConverter:
             skill_diff = abs(team1_avg - team2_avg)
             
             # 상위/하위 선수 실력차
-            # if match_type in ['남복', '여복']:
-            #     team1_sorted = sorted(team1_skills)
-            #     team2_sorted = sorted(team2_skills)
-            #     top_diff = abs(team1_sorted[0] - team2_sorted[0])
-            #     bottom_diff = abs(team1_sorted[1] - team2_sorted[1])
-            # elif match_type == '혼복':
-            #     # 남자끼리, 여자끼리 비교
-            #     team1_male_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 1][0]
-            #     team1_female_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 2][0]
-            #     team2_male_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 1][0]
-            #     team2_female_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 2][0]
-            #     top_diff = abs(team1_male_skill - team2_male_skill)
-            #     bottom_diff = abs(team1_female_skill - team2_female_skill)
-            # else:
-            #     top_diff = 0
-            #     bottom_diff = 0
+            if match_type in ['남복', '여복']:
+                team1_sorted = sorted(team1_skills)
+                team2_sorted = sorted(team2_skills)
+                top_diff = abs(team1_sorted[0] - team2_sorted[0])
+                bottom_diff = abs(team1_sorted[1] - team2_sorted[1])
+            elif match_type == '혼복':
+                # 남자끼리, 여자끼리 비교
+                team1_male_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 1][0]
+                team1_female_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 2][0]
+                team2_male_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 1][0]
+                team2_female_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 2][0]
+                top_diff = abs(team1_male_skill - team2_male_skill)
+                bottom_diff = abs(team1_female_skill - team2_female_skill)
+            else:
+                top_diff = 0
+                bottom_diff = 0
             
             match = {
                 'court': int(row['코트']),
@@ -154,8 +154,8 @@ class CustomConverter:
                 'team1_avg': team1_avg,
                 'team2_avg': team2_avg,
                 'skill_diff': skill_diff,
-                # 'top_diff': top_diff,
-                # 'bottom_diff': bottom_diff
+                'top_diff': top_diff,
+                'bottom_diff': bottom_diff
             }
             self.matches.append(match)
             
@@ -504,8 +504,8 @@ class CustomConverter:
             os.makedirs(results_dir)
         
         # # 4. 엑셀 생성
-        # excel_path = os.path.join(results_dir, f'테니스_매칭결과_{timestamp}.xlsx')
-        # self.create_excel(excel_path)
+        excel_path = os.path.join(results_dir, f'테니스_매칭결과_{timestamp}.xlsx')
+        self.create_excel(excel_path)
         
         # 5. PDF 생성
         pdf_path = os.path.join(results_dir, f'테니스_타임표_{timestamp}.pdf')
