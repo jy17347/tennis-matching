@@ -77,6 +77,16 @@ class CustomConverter:
         """custom.xlsx에서 매칭 데이터 로드"""
         print(f"\n📂 매칭 데이터 로드: {self.custom_file}")
         df = pd.read_excel(self.custom_file, sheet_name='매칭결과')
+
+        def normalize_match_type(value):
+            text = str(value).strip()
+            if text in ['남복', '남자복식', '남']:
+                return '남복'
+            if text in ['여복', '여자복식', '여']:
+                return '여복'
+            if text in ['혼복', '혼합복식', '혼']:
+                return '혼복'
+            return ''
         
         # 선수 초기화
         all_players = set()
@@ -108,17 +118,25 @@ class CustomConverter:
             team1 = [str(row['팀1_선수1']).strip(), str(row['팀1_선수2']).strip()]
             team2 = [str(row['팀2_선수1']).strip(), str(row['팀2_선수2']).strip()]
             
-            # 경기 타입 결정
-            team1_genders = [self.player_stats[p]['gender'] for p in team1]
-            team2_genders = [self.player_stats[p]['gender'] for p in team2]
-            all_genders = team1_genders + team2_genders
-            
-            if all_genders.count(1) == 4:
-                match_type = '남복'
-            elif all_genders.count(2) == 4:
-                match_type = '여복'
-            else:
-                match_type = '혼복'
+            # 경기 타입: custom.xlsx에 적힌 값을 우선 사용, 없으면 성별로 추론
+            match_type = ''
+            for col in ['경기타입', 'type', '타입']:
+                if col in df.columns:
+                    match_type = normalize_match_type(row.get(col, ''))
+                    if match_type:
+                        break
+
+            if not match_type:
+                team1_genders = [self.player_stats[p]['gender'] for p in team1]
+                team2_genders = [self.player_stats[p]['gender'] for p in team2]
+                all_genders = team1_genders + team2_genders
+                
+                if all_genders.count(1) == 4:
+                    match_type = '남복'
+                elif all_genders.count(2) == 4:
+                    match_type = '여복'
+                else:
+                    match_type = '혼복'
             
             # 팀 평균 실력 계산
             team1_skills = [self.player_stats[p]['skill'] for p in team1]
@@ -128,22 +146,22 @@ class CustomConverter:
             skill_diff = abs(team1_avg - team2_avg)
             
             # 상위/하위 선수 실력차
-            if match_type in ['남복', '여복']:
-                team1_sorted = sorted(team1_skills)
-                team2_sorted = sorted(team2_skills)
-                top_diff = abs(team1_sorted[0] - team2_sorted[0])
-                bottom_diff = abs(team1_sorted[1] - team2_sorted[1])
-            elif match_type == '혼복':
-                # 남자끼리, 여자끼리 비교
-                team1_male_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 1][0]
-                team1_female_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 2][0]
-                team2_male_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 1][0]
-                team2_female_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 2][0]
-                top_diff = abs(team1_male_skill - team2_male_skill)
-                bottom_diff = abs(team1_female_skill - team2_female_skill)
-            else:
-                top_diff = 0
-                bottom_diff = 0
+            # if match_type in ['남복', '여복']:
+            #     team1_sorted = sorted(team1_skills)
+            #     team2_sorted = sorted(team2_skills)
+            #     top_diff = abs(team1_sorted[0] - team2_sorted[0])
+            #     bottom_diff = abs(team1_sorted[1] - team2_sorted[1])
+            # elif match_type == '혼복':
+            #     # 남자끼리, 여자끼리 비교
+            #     team1_male_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 1][0]
+            #     team1_female_skill = [self.player_stats[p]['skill'] for p in team1 if self.player_stats[p]['gender'] == 2][0]
+            #     team2_male_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 1][0]
+            #     team2_female_skill = [self.player_stats[p]['skill'] for p in team2 if self.player_stats[p]['gender'] == 2][0]
+            #     top_diff = abs(team1_male_skill - team2_male_skill)
+            #     bottom_diff = abs(team1_female_skill - team2_female_skill)
+            # else:
+            #     top_diff = 0
+            #     bottom_diff = 0
             
             match = {
                 'court': int(row['코트']),
@@ -154,8 +172,8 @@ class CustomConverter:
                 'team1_avg': team1_avg,
                 'team2_avg': team2_avg,
                 'skill_diff': skill_diff,
-                'top_diff': top_diff,
-                'bottom_diff': bottom_diff
+                # 'top_diff': top_diff,
+                # 'bottom_diff': bottom_diff
             }
             self.matches.append(match)
             
@@ -186,10 +204,10 @@ class CustomConverter:
                 '팀1_평균실력': round(match['team1_avg'], 1),
                 '팀2_선수1': match['team2'][0],
                 '팀2_선수2': match['team2'][1],
-                '팀2_평균실력': round(match['team2_avg'], 1),
-                '팀평균_실력차': round(match['skill_diff'], 1),
-                '상위선수_실력차': int(match['top_diff']),
-                '하위선수_실력차': int(match['bottom_diff'])
+                # '팀2_평균실력': round(match['team2_avg'], 1),
+                # '팀평균_실력차': round(match['skill_diff'], 1),
+                # '상위선수_실력차': int(match['top_diff']),
+                # '하위선수_실력차': int(match['bottom_diff'])
             })
         df_matches = pd.DataFrame(match_data)
         
@@ -263,14 +281,14 @@ class CustomConverter:
         # NaN 처리 (None을 빈 문자열로)
         df_stats = df_stats.fillna('')
         
-        # 4. 전체요약 시트
-        participations = [p['matches_played'] for p in self.player_stats.values() if p['matches_played'] > 0]
-        skill_diffs = [m['skill_diff'] for m in self.matches]
-        top_diffs = [m['top_diff'] for m in self.matches]
-        bottom_diffs = [m['bottom_diff'] for m in self.matches]
+        # # 4. 전체요약 시트
+        # participations = [p['matches_played'] for p in self.player_stats.values() if p['matches_played'] > 0]
+        # skill_diffs = [m['skill_diff'] for m in self.matches]
+        # top_diffs = [m['top_diff'] for m in self.matches]
+        # bottom_diffs = [m['bottom_diff'] for m in self.matches]
         
-        male_count = len([p for p in self.player_stats.values() if p['gender'] == 1 and p['matches_played'] > 0])
-        female_count = len([p for p in self.player_stats.values() if p['gender'] == 2 and p['matches_played'] > 0])
+        # male_count = len([p for p in self.player_stats.values() if p['gender'] == 1 and p['matches_played'] > 0])
+        # female_count = len([p for p in self.player_stats.values() if p['gender'] == 2 and p['matches_played'] > 0])
         
         summary_data = [
             {'항목': '총 경기 수', '값': len(self.matches)},
@@ -278,14 +296,14 @@ class CustomConverter:
             {'항목': '여복 경기 수', '값': len([m for m in self.matches if m['type'] == '여복'])},
             {'항목': '혼복 경기 수', '값': len([m for m in self.matches if m['type'] == '혼복'])},
             {'항목': '총 참가자 수', '값': len([p for p in self.player_stats.values() if p['matches_played'] > 0])},
-            {'항목': '남자 참가자', '값': male_count},
-            {'항목': '여자 참가자', '값': female_count},
-            {'항목': '평균 참여 횟수', '값': round(np.mean(participations), 2) if participations else 0},
-            {'항목': '최대 참여 횟수', '값': max(participations) if participations else 0},
-            {'항목': '최소 참여 횟수', '값': min(participations) if participations else 0},
-            {'항목': '평균 팀간 실력차', '값': round(np.mean(skill_diffs), 2) if skill_diffs else 0},
-            {'항목': '평균 상위선수 실력차', '값': round(np.mean(top_diffs), 2) if top_diffs else 0},
-            {'항목': '평균 하위선수 실력차', '값': round(np.mean(bottom_diffs), 2) if bottom_diffs else 0},
+        #     {'항목': '남자 참가자', '값': male_count},
+        #     {'항목': '여자 참가자', '값': female_count},
+        #     {'항목': '평균 참여 횟수', '값': round(np.mean(participations), 2) if participations else 0},
+        #     {'항목': '최대 참여 횟수', '값': max(participations) if participations else 0},
+        #     {'항목': '최소 참여 횟수', '값': min(participations) if participations else 0},
+        #     {'항목': '평균 팀간 실력차', '값': round(np.mean(skill_diffs), 2) if skill_diffs else 0},
+        #     {'항목': '평균 상위선수 실력차', '값': round(np.mean(top_diffs), 2) if top_diffs else 0},
+        #     {'항목': '평균 하위선수 실력차', '값': round(np.mean(bottom_diffs), 2) if bottom_diffs else 0},
         ]
         df_summary = pd.DataFrame(summary_data)
         

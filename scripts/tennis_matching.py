@@ -182,7 +182,7 @@ class Match:
 class TennisMatchingSystem:
     """테니스 매칭 시스템"""
     
-    def __init__(self, roster_path, participation_path, time_slots=7, guest_path=None):
+    def __init__(self, roster_path, participation_path, time_slots=5, guest_path=None):
         self.roster_path = roster_path
         self.participation_path = participation_path
         self.guest_path = guest_path
@@ -358,6 +358,10 @@ class TennisMatchingSystem:
                 
                 # 2. 남녀 평균 참여 횟수 균형
                 score += abs(avg_male - avg_female) * 50
+
+                # 2-1. 여성이 남성보다 더 많이 뛰는 분배는 추가 페널티
+                if avg_female > avg_male:
+                    score += (avg_female - avg_male) * 200
                 
                 # 3. 참여 횟수가 적당한 범위 (2~4회)
                 if avg_male < 2 or avg_male > 5:
@@ -458,8 +462,11 @@ class TennisMatchingSystem:
                 if exclude is None or p.name not in [e.name for e in exclude]:
                     available.append(p)
         
-        # 연속 휴식 횟수가 많은 선수를 앞으로 (연속 휴식 방지)
-        available.sort(key=lambda p: (-p.consecutive_rests, p.matches_played))
+        # 남자는 연속 휴식 방지 우선, 여자는 많이 뛴 사람이 먼저 뛰도록 우선순위 부여
+        if gender == 2:
+            available.sort(key=lambda p: (-p.matches_played, -p.consecutive_rests, p.name))
+        else:
+            available.sort(key=lambda p: (-p.consecutive_rests, p.matches_played, p.name))
         
         return available
     
@@ -792,9 +799,9 @@ class TennisMatchingSystem:
             if len(available_females) < 2:
                 continue
             
-            # 참여 횟수 적은 여자 우선 + 랜덤성 추가
+            # 여성은 많이 뛴 사람부터 우선 배치해, 적게 뛴 여성을 쉬게 함
             random.shuffle(available_females)
-            available_females.sort(key=lambda p: p.matches_played)
+            available_females.sort(key=lambda p: (-p.matches_played, -p.consecutive_rests, p.name))
             selected_females = available_females[:2]
             
             # 매치 생성
@@ -816,9 +823,9 @@ class TennisMatchingSystem:
             
             available = self.get_available_players(time_slot + 1, gender=2)
             if len(available) >= 4:
-                # 참여 횟수 적은 순 + 랜덤성 추가
+                # 여성은 많이 뛴 사람부터 우선 배치해, 적게 뛴 여성을 쉬게 함
                 random.shuffle(available)
-                available.sort(key=lambda p: p.matches_played)
+                available.sort(key=lambda p: (-p.matches_played, -p.consecutive_rests, p.name))
                 
                 # 더 넓은 풀에서 최적의 조합 탐색
                 pool_size = min(len(available), 6)
@@ -907,6 +914,19 @@ class TennisMatchingSystem:
         # 2. 미참여 선수
         no_participation = [p for p in self.players if p.matches_played == 0]
         score += len(no_participation) * 5000
+
+        # 2-1. 여성의 최소 참여 횟수가 남성보다 높으면 패널티
+        male_participations = [p.matches_played for p in self.male_players if p.matches_played > 0]
+        female_participations = [p.matches_played for p in self.female_players if p.matches_played > 0]
+        if male_participations and female_participations:
+            male_avg = sum(male_participations) / len(male_participations)
+            female_avg = sum(female_participations) / len(female_participations)
+            if female_avg > male_avg:
+                score += (female_avg - male_avg) * 250
+            male_min = min(male_participations)
+            female_min = min(female_participations)
+            if female_min > male_min:
+                score += (female_min - male_min) * 1000
         
         # 3. 참여 횟수 균형
         participations = [p.matches_played for p in self.players if p.matches_played > 0]
